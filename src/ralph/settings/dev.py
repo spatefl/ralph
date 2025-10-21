@@ -1,3 +1,5 @@
+import os
+
 from ralph.settings import *  # noqa
 from ralph.settings import (
     bool_from_env,
@@ -60,5 +62,5 @@ if bool_from_env("RALPH_PROFILING"):
             "function": "DataCenterAssetAdmin.changelist_view",
         },
     ]
-ADMIN_SITE_HEADER = "Ralph DEV"
-ADMIN_SITE_TITLE = "Ralph DEV"
+ADMIN_SITE_HEADER = os.environ.get("ADMIN_SITE_HEADER", f"{SITE_BRAND} DEV")
+ADMIN_SITE_TITLE = os.environ.get("ADMIN_SITE_TITLE", f"{SITE_BRAND} DEV")

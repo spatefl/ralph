@@ -1,0 +1,60 @@
+FROM ubuntu:jammy
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG APP_DIR=/opt/sirius-ralph
+ARG PYTHON_BIN=python3.10
+ARG NODE_MAJOR=22
+
+ENV APP_DIR=${APP_DIR} \
+    PYTHON_BIN=${PYTHON_BIN} \
+    VENV_DIR=${APP_DIR}/venv \
+    DJANGO_SETTINGS_MODULE=ralph.settings \
+    PATH=${APP_DIR}/venv/bin:$PATH \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    RALPH_VERSION_OVERRIDE=0.0.0-dev
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        pkg-config \
+        curl \
+        git \
+        ca-certificates \
+        locales \
+        python3.10 \
+        python3.10-dev \
+        python3.10-venv \
+        libldap2-dev \
+        libsasl2-dev \
+        libffi-dev \
+        libssl-dev \
+        default-libmysqlclient-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN locale-gen en_US.UTF-8
+ENV LANG en_US.UTF-8 LANGUAGE en_US:en LC_ALL en_US.UTF-8
+
+WORKDIR ${APP_DIR}
+COPY . ${APP_DIR}
+
+RUN make PYTHON_BIN=${PYTHON_BIN} VENV_DIR=${VENV_DIR} venv
+
+RUN ${APP_DIR}/venv/bin/pip install -r requirements/prod.txt
+RUN ${APP_DIR}/venv/bin/pip install -e .
+
+RUN npm install && \
+    npm run build && \
+    ${APP_DIR}/venv/bin/ralph collectstatic --noinput
+
+COPY docker/provision/run-service.sh /usr/local/bin/run-service.sh
+RUN chmod +x /usr/local/bin/run-service.sh
+
+EXPOSE 8005
+
+CMD ["/usr/local/bin/run-service.sh"]

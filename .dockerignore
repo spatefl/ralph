@@ -1,4 +1,4 @@
-.dockerignore
-docker-compose.yml
-node_modules
-bower_components
+venv
+__pycache__
+*.pyc
+docker/volumes

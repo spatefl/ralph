@@ -2,4 +2,5 @@
 set -e
 cd /var/local/ralph
 npm install
-./node_modules/.bin/gulp
+npm run build
+python3 manage.py collectstatic --noinput

@@ -3,25 +3,29 @@ services:
     platform: linux/amd64
     build:
       context: ../
-      dockerfile: docker/Dockerfile-local-dev
+      dockerfile: docker/Dockerfile-service
+    depends_on:
+      - db
+      - redis
     restart: unless-stopped
     ports:
-      - "8000:8000"
-    volumes:
-      - ../.:/var/local/ralph
+      - "8005:8005"
     environment:
         DATABASE_NAME: ralph_ng
         DATABASE_USER: ralph_ng
         DATABASE_PASSWORD: ralph_ng
         DATABASE_HOST: db
+        DATABASE_PORT: 3306
+        DATABASE_ENGINE: django.db.backends.mysql
         REDIS_HOST: redis
         REDIS_PASSWORD: ""
         REDIS_PORT: 6379
         REDIS_DB: 0
+        RALPH_PORT: 8005
 
   db:
     platform: linux/amd64
-    image: mysql:5.7
+    image: mysql:8.0
     environment:
       MYSQL_DATABASE: ralph_ng
       MYSQL_ROOT_PASSWORD: ralph_ng
@@ -29,7 +33,7 @@ services:
       MYSQL_PASSWORD: ralph_ng
     volumes:
       - ralph_dbdata:/var/lib/mysql
-    command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    command: mysqld --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     restart: unless-stopped
 
   redis:
@@ -55,7 +59,7 @@ services:
       context: ../
       dockerfile: docker/Dockerfile-local-dev-static
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
       - ../src/ralph:/opt/media
       - ../src/ralph/static:/opt/static

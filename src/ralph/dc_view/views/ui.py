@@ -15,7 +15,7 @@ class ServerRoomView(RalphTemplateView):
         context["data_centers"] = DataCenter.objects.annotate(
             rooms_count=Count("serverroom")
         ).filter(rooms_count__gt=0)
-        context["site_header"] = "Ralph 3"
+        context["site_header"] = settings.ADMIN_SITE_HEADER
         return context
 
 

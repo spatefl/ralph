@@ -711,3 +711,163 @@ class BackOfficeAsset(Regionalizable, Asset):
     def hardware_replacement(cls, instances, **kwargs):
         for instance in instances:
             instance.loan_end_date = datetime.date.today() + datetime.timedelta(days=10)  # noqa
+
+
+class DisasterReliefTrailerType(Choices):
+    _ = Choices.Choice
+
+    flatbed = _("Flatbed")
+    enclosed = _("Enclosed")
+    utility = _("Utility")
+    tanker = _("Tanker")
+    refrigerated = _("Refrigerated")
+    other = _("Other")
+
+
+class DisasterReliefAsset(BackOfficeAsset):
+    license_plate = NullableCharField(
+        max_length=32,
+        blank=True,
+        null=True,
+        verbose_name=_("license plate"),
+    )
+    mileage = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name=_("mileage"),
+        help_text=_("Recorded mileage in kilometers."),
+    )
+    hours_used = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name=_("hours used"),
+        help_text=_("Cumulative operating hours."),
+    )
+    power_rating = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        verbose_name=_("power rating"),
+        help_text=_("Rated power output (for example in kW or kVA)."),
+    )
+
+    class Meta:
+        abstract = True
+
+
+class DisasterReliefVehicle(DisasterReliefAsset):
+    _allow_in_dashboard = True
+
+    class Meta:
+        verbose_name = _("Disaster-relief vehicle")
+        verbose_name_plural = _("Disaster-relief vehicles")
+
+    def __str__(self):
+        return "{} ({})".format(self.hostname or self.barcode or self.pk, _("vehicle"))
+
+
+class DisasterReliefTrailer(DisasterReliefAsset):
+    _allow_in_dashboard = True
+
+    trailer_type = NullableCharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        choices=DisasterReliefTrailerType(),
+        verbose_name=_("trailer type"),
+    )
+
+    class Meta:
+        verbose_name = _("Disaster-relief trailer")
+        verbose_name_plural = _("Disaster-relief trailers")
+
+    def __str__(self):
+        return "{} ({})".format(
+            self.hostname or self.barcode or self.pk, _("trailer")
+        )
+
+
+class DisasterReliefHeavyEquipment(DisasterReliefAsset):
+    _allow_in_dashboard = True
+
+    class Meta:
+        verbose_name = _("Disaster-relief heavy equipment")
+        verbose_name_plural = _("Disaster-relief heavy equipment")
+
+    def __str__(self):
+        return "{} ({})".format(
+            self.hostname or self.barcode or self.pk, _("heavy equipment")
+        )
+
+
+class MaintenanceLog(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    asset = models.ForeignKey(
+        BackOfficeAsset,
+        related_name="maintenance_logs",
+        on_delete=models.CASCADE,
+        verbose_name=_("asset"),
+    )
+    service_date = models.DateField(verbose_name=_("service date"))
+    description = models.TextField(verbose_name=_("work description"))
+    next_due_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_("next due date"),
+        help_text=_("Optional reminder for the next planned maintenance."),
+    )
+    performed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="maintenance_logs",
+        verbose_name=_("performed by"),
+    )
+
+    class Meta:
+        ordering = ["-service_date", "-created"]
+        verbose_name = _("maintenance log")
+        verbose_name_plural = _("maintenance logs")
+
+    def __str__(self):
+        return "{} – {}".format(self.asset, self.service_date)
+
+
+class UsageLog(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    asset = models.ForeignKey(
+        BackOfficeAsset,
+        related_name="usage_logs",
+        on_delete=models.CASCADE,
+        verbose_name=_("asset"),
+    )
+    reading_date = models.DateField(verbose_name=_("reading date"))
+    mileage_delta = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name=_("mileage increment"),
+        help_text=_("Mileage added since last reading (in kilometers)."),
+    )
+    hours_delta = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name=_("hours increment"),
+        help_text=_("Hours added since last reading."),
+    )
+    notes = models.TextField(blank=True, verbose_name=_("notes"))
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="usage_logs",
+        verbose_name=_("recorded by"),
+    )
+
+    class Meta:
+        ordering = ["-reading_date", "-created"]
+        verbose_name = _("usage log")
+        verbose_name_plural = _("usage logs")
+
+    def __str__(self):
+        return "{} – {}".format(self.asset, self.reading_date)

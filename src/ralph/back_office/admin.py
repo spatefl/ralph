@@ -16,7 +16,16 @@ from ralph.assets.filters import BuyoutDateFilter
 from ralph.assets.invoice_report import AssetInvoiceReportMixin
 from ralph.assets.models import ObjectModelType
 from ralph.attachments.admin import AttachmentsMixin
-from ralph.back_office.models import BackOfficeAsset, OfficeInfrastructure, Warehouse
+from ralph.back_office.models import (
+    BackOfficeAsset,
+    DisasterReliefHeavyEquipment,
+    DisasterReliefTrailer,
+    DisasterReliefVehicle,
+    MaintenanceLog,
+    OfficeInfrastructure,
+    UsageLog,
+    Warehouse,
+)
 from ralph.data_importer import resources
 from ralph.lib.custom_fields.admin import CustomFieldValueAdminMixin
 from ralph.lib.mixins.forms import AssetFormMixin, PriceFormMixin
@@ -390,6 +399,97 @@ class BackOfficeAssetAdmin(
 
     get_user.short_description = _("User")
     get_user.admin_order_field = "user"
+
+
+class MaintenanceLogInline(RalphTabularInline):
+    model = MaintenanceLog
+    extra = 0
+    raw_id_fields = ("performed_by",)
+    fields = ("service_date", "performed_by", "description", "next_due_date")
+    ordering = ("-service_date",)
+    verbose_name_plural = _("Maintenance history")
+
+
+class UsageLogInline(RalphTabularInline):
+    model = UsageLog
+    extra = 0
+    raw_id_fields = ("recorded_by",)
+    fields = ("reading_date", "recorded_by", "mileage_delta", "hours_delta", "notes")
+    ordering = ("-reading_date",)
+    verbose_name_plural = _("Usage history")
+
+
+class DisasterReliefAssetAdminMixin:
+    def __init__(self, *args, **kwargs):
+        self.change_views = []
+        super().__init__(*args, **kwargs)
+
+    disaster_relief_fields = (
+        "license_plate",
+        "mileage",
+        "hours_used",
+        "power_rating",
+    )
+    inlines = [MaintenanceLogInline, UsageLogInline]
+
+    def get_fieldsets(self, request, obj=None):
+        base_fieldsets = super().get_fieldsets(request, obj)
+        extra_fields = self.disaster_relief_fields
+        if hasattr(self.model, "trailer_type"):
+            extra_fields = extra_fields + ("trailer_type",)
+        return base_fieldsets + (
+            (
+                _("Disaster relief details"),
+                {
+                    "fields": extra_fields,
+                },
+            ),
+        )
+
+    def get_list_display(self, request):
+        base = list(super().get_list_display(request))
+        extra = ["license_plate", "mileage", "hours_used", "power_rating"]
+        if hasattr(self.model, "trailer_type"):
+            extra.append("trailer_type")
+        return tuple(base + extra)
+
+    def get_search_fields(self, request):
+        base = list(super().get_search_fields(request))
+        base.append("license_plate")
+        return tuple(base)
+
+
+@register(DisasterReliefVehicle)
+class DisasterReliefVehicleAdmin(DisasterReliefAssetAdminMixin, BackOfficeAssetAdmin):
+    pass
+
+
+@register(DisasterReliefTrailer)
+class DisasterReliefTrailerAdmin(DisasterReliefAssetAdminMixin, BackOfficeAssetAdmin):
+    pass
+
+
+@register(DisasterReliefHeavyEquipment)
+class DisasterReliefHeavyEquipmentAdmin(
+    DisasterReliefAssetAdminMixin, BackOfficeAssetAdmin
+):
+    pass
+
+
+@register(MaintenanceLog)
+class MaintenanceLogAdmin(RalphAdmin):
+    list_display = ("asset", "service_date", "performed_by", "next_due_date")
+    raw_id_fields = ("asset", "performed_by")
+    search_fields = ("asset__barcode", "asset__hostname", "description")
+    list_filter = ("service_date", "next_due_date", "performed_by")
+
+
+@register(UsageLog)
+class UsageLogAdmin(RalphAdmin):
+    list_display = ("asset", "reading_date", "recorded_by", "mileage_delta", "hours_delta")
+    raw_id_fields = ("asset", "recorded_by")
+    search_fields = ("asset__barcode", "asset__hostname", "notes")
+    list_filter = ("reading_date", "recorded_by")
 
 
 @register(Warehouse)

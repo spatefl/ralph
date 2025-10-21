@@ -14,8 +14,15 @@ def read(fname):
 
 
 def get_version():
+    override = os.environ.get("RALPH_VERSION_OVERRIDE")
+    if override:
+        return override
     script = os.path.join(os.path.abspath(os.path.dirname(__file__)), "get_version.sh")
-    ver = subprocess.check_output([script], shell=True)
+    try:
+        ver = subprocess.check_output([script], shell=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        fallback = os.environ.get("RALPH_VERSION_FALLBACK", "0.0.0-dev")
+        return fallback
     return ver.decode().strip()
 
 

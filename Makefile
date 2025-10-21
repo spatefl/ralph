@@ -2,8 +2,12 @@ TEST?=ralph
 TEST_ARGS=
 DOCKER_REPO_NAME?="allegro"
 RALPH_VERSION?=$(shell git describe --abbrev=0)
+PYTHON_BIN?=python3.10
+VENV_DIR?=venv
+VENV_PIP=$(VENV_DIR)/bin/pip
+VENV_PYTHON=$(VENV_DIR)/bin/python
 
-.PHONY: test flake clean coverage docs coveralls
+.PHONY: test flake clean coverage docs coveralls venv venv-install-dev venv-clean
 
 # release-new-version is used by ralph mainteiners prior to publishing
 # new version of the package. The command generates the debian changelog
@@ -100,6 +104,17 @@ install-dev:
 
 install-docs:
 	pip3 install -r requirements/docs.txt
+
+venv:
+	test -d $(VENV_DIR) || $(PYTHON_BIN) -m venv $(VENV_DIR)
+	$(VENV_PIP) install --upgrade pip setuptools wheel
+
+venv-install-dev: venv
+	$(VENV_PIP) install -r requirements/dev.txt
+	$(VENV_PIP) install -e .
+
+venv-clean:
+	rm -rf $(VENV_DIR)
 
 isort:
 	isort --diff --recursive --check-only --quiet src

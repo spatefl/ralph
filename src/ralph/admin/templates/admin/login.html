@@ -42,8 +42,8 @@
       <div class="large-3 medium-6 small-12 small-centered columns">
         <div class="row">
           <div class="small-centered columns login-header">
-            <h1>Ralph <strong>3</strong></h1>
-            <p class="slogan">DCIM &amp; Asset Management System</p>
+            <h1 class="brand-wordmark">{{ site_header|default:_("Sirius Asset Manager") }}</h1>
+            <p class="slogan">{% trans "Unified DCIM & Asset Intelligence" %}</p>
           </div>
         </div>
         <form action="{{ app_path }}" method="post" id="login-form">{% csrf_token %}

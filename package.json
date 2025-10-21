@@ -5,6 +5,9 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "scripts": {
+    "build": "gulp"
+  },
   "dependencies": {
     "bower": "^1.8.14",
     "del": "^6.1.1",
