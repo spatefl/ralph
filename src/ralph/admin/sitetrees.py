@@ -88,6 +88,27 @@ sitetrees = [
         "ralph_admin",
         items=[
             ralph_item(
+                title=_("Fleet"),
+                url="#",
+                url_as_pattern=False,
+                perms_mode_all=False,
+                children=[],
+            ),
+            ralph_item(
+                title=_("Drones"),
+                url="#",
+                url_as_pattern=False,
+                perms_mode_all=False,
+                children=[],
+            ),
+            ralph_item(
+                title=_("Sensors"),
+                url="#",
+                url_as_pattern=False,
+                perms_mode_all=False,
+                children=[],
+            ),
+            ralph_item(
                 title=_("Data Center"),
                 url="#",
                 url_as_pattern=False,

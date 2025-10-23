@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 ARG APP_DIR=/opt/sirius-ralph
 ARG PYTHON_BIN=python3.10
-ARG NODE_MAJOR=22
+ARG NODE_MAJOR=18
 
 ENV APP_DIR=${APP_DIR} \
     PYTHON_BIN=${PYTHON_BIN} \
@@ -49,7 +49,7 @@ RUN ${APP_DIR}/venv/bin/pip install -r requirements/prod.txt
 RUN ${APP_DIR}/venv/bin/pip install -e .
 
 RUN npm install && \
-    npm run build && \
+    SKIP_BOWER=true npm run build && \
     ${APP_DIR}/venv/bin/ralph collectstatic --noinput
 
 COPY docker/provision/run-service.sh /usr/local/bin/run-service.sh

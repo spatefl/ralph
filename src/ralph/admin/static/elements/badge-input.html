@@ -13,10 +13,13 @@
       width: 100%;
       overflow: hidden;  /* "overflow" value must be different from "visible" */
       text-overflow: ellipsis;
+      color: var(--color-text-primary, #222);
     }
     .badge {
       @apply(--layout-horizontal);
-      background-color: #ededed;
+      background-color: var(--color-surface-overlay, #ededed);
+      color: var(--color-text-primary, #222);
+      border: 1px solid var(--color-border, #cacaca);
     }
     .hidden {
       display: none;
@@ -25,8 +28,8 @@
       height: 30px;
       line-height: 1rem;
       display: inline-block;
-      background: #ededed;
-      border: 1px solid #cacaca;
+      background: var(--color-surface-overlay, #ededed);
+      border: 1px solid var(--color-border, #cacaca);
       white-space: nowrap;
       margin: 1px;
       padding: 0.25rem 0;
@@ -51,7 +54,9 @@
       width: 100%;
       border: 0;
       margin-bottom: 0;
-      background: #fff;
+      padding: 0;
+      background: var(--color-input-bg, #fff);
+      color: var(--color-text-primary, #222);
     }
     .badge a, .badge i {
       float: left;

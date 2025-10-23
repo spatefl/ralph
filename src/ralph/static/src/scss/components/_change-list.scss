@@ -34,18 +34,22 @@
         }
     }
     .sidebar.actions-and-filters {
-        border-right: 1px solid darken($tabs-content-bg-color, 15%);
+        background-color: var(--color-surface, $surface-color);
+        border-right: 1px solid var(--color-border-strong, $border-color);
+        color: var(--color-text-primary, $body-font-color);
         .filters, .actions {
-            border-bottom: 1px solid darken($tabs-content-bg-color, 15%);
+            border-bottom: 1px solid var(--color-border, $border-color);
             padding-bottom: 2rem;
             margin-bottom: 2rem;
             h4 {
                 margin-top: 0;
                 font-size: 1.75rem;
+                color: var(--color-text-primary, $body-font-color);
             }
             h6 {
                 display: block-inline;
                 margin: 0 0 0.25rem 0;
+                color: var(--color-text-secondary, $body-font-color-muted);
                 &:first-letter {
                     text-transform: uppercase;
                 }

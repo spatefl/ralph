@@ -8,6 +8,8 @@ var gulp = require('gulp'),
     vulcanize = require('gulp-vulcanize'),
     sourcemaps = require('gulp-sourcemaps');
 
+var skipBower = process.env.SKIP_BOWER === 'true';
+
 var config = {
     bowerDir: './bower_components/',
     elementsRoot: 'src/ralph/admin/static/elements/',
@@ -26,6 +28,10 @@ var sass_config = {
 };
 
 gulp.task('bower', function() {
+    if (skipBower) {
+        // Allow callers (e.g. Docker build) to reuse existing bower_components.
+        return Promise.resolve();
+    }
     return bower()
         .pipe(gulp.dest(config.bowerDir));
 });

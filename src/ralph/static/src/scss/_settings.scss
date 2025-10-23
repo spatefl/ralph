@@ -7,22 +7,30 @@ $fa-font-path: '../vendor/fonts';
 $base-font-size: 12px;
 $rem-base: $base-font-size;
 
-$body-bg: #fff;
+$body-bg: #121212;
 $global-radius: 0;
 
 $primary-color: $mdc-blue-600;
-
 $success-color: #43A047;
 
-$panel-bg: $mdc-blue-grey-50;
-$crumb-bg: $mdc-blue-grey-50;
+$body-font-color: rgba(255, 255, 255, 0.87);
+$body-font-color-muted: rgba(255, 255, 255, 0.65);
+$surface-color: #1a1a1a;
+$surface-elevated-color: #1f1f1f;
+$surface-overlay-color: #232323;
+$border-color: #2c2c2c;
+$border-color-strong: #3a3a3a;
+$focus-ring-color: lighten($primary-color, 12%);
+
+$panel-bg: $surface-elevated-color;
+$crumb-bg: $surface-elevated-color;
 
 $crumb-padding: rem-calc(10 12 10);
 $crumb-side-padding: rem-calc(6);
 $crumb-border-size: 0;
 $crumb-border-style: none;
 $crumb-border-color: transparent;
-$crumb-font-color: $primary-color;
+$crumb-font-color: $body-font-color;
 $crumb-font-transform: normal;
 
 $button-tny: rem-calc(7);
@@ -45,8 +53,8 @@ $form-label-font-size: rem-calc(12);
 
 $fieldset-border-style: solid;
 $fieldset-border-width: 3px;
-$fieldset-border-color: #eee;
-$fieldset-bg-color: rgb(246, 246, 246);
+$fieldset-border-color: $border-color;
+$fieldset-bg-color: $surface-color;
 $fieldset-margin: rem-calc(20 0);
 
 $topbar-bg-color: $primary-color;
@@ -62,7 +70,7 @@ $topbar-height: rem-calc(40);
 $topbar-link-bg-hover: lighten($topbar-bg-color, 5%);
 $topbar-link-bg-active: darken($topbar-bg-color, 10%);
 $topbar-link-bg-active-hover: darken($topbar-bg-color, 5%);
-$topbar-link-color-hover: #fff;
+$topbar-link-color-hover: $body-font-color;
 $topbar-margin-bottom: 0;
 $topbar-menu-link-color-toggled: rgba(255,255,255,0.6);
 
@@ -70,16 +78,22 @@ $f-dropdown-max-width: 280px;
 
 $datepicker-active-color: $primary-color;
 
-$tabs-border-color: #ccc;
-$tabs-content-bg-color: #fafafa;
+$tabs-border-color: $border-color;
+$tabs-content-bg-color: $surface-elevated-color;
 
 $accordion-navigation-padding: rem-calc(5);
 $accordion-navigation-font-size: rem-calc(12);
 
-$validation-error-bg-color: rgb(255, 245, 195);
-$validation-error-border-color: rgb(255, 56, 125);
-$validation-error-font-color: red;
+$validation-error-bg-color: rgba($mdc-red-500, 0.18);
+$validation-error-border-color: lighten($mdc-red-600, 10%);
+$validation-error-font-color: lighten($mdc-red-200, 10%);
 
+$input-bg-color: $surface-overlay-color;
+$input-border-style: solid;
+$input-border-width: 1px;
+$input-border-color: $border-color;
+$input-font-color: $body-font-color;
+$input-placeholder-color: rgba(255, 255, 255, 0.45);
 $input-box-shadow: none;
 $input-padding: 0.4rem;
 
@@ -95,3 +109,22 @@ $info-color: #F7F48A;
 $pagination-height: 0;
 
 $admin-bottom-bg: $tabs-content-bg-color !default;
+
+:root {
+    color-scheme: dark;
+    --color-body-bg: #{$body-bg};
+    --color-surface: #{$surface-color};
+    --color-surface-elevated: #{$surface-elevated-color};
+    --color-surface-overlay: #{$surface-overlay-color};
+    --color-border: #{$border-color};
+    --color-border-strong: #{$border-color-strong};
+    --color-text-primary: #{$body-font-color};
+    --color-text-secondary: #{$body-font-color-muted};
+    --color-input-bg: #{$input-bg-color};
+    --color-input-border: #{$input-border-color};
+    --color-input-placeholder: #{$input-placeholder-color};
+    --color-validation-bg: #{$validation-error-bg-color};
+    --color-validation-border: #{$validation-error-border-color};
+    --color-validation-text: #{$validation-error-font-color};
+    --color-focus-ring: #{$focus-ring-color};
+}

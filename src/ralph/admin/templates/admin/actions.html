@@ -2,7 +2,7 @@
 
 {% if action_form %}
   <div class="actions">
-    <h4>{% trans "Actions" %}</h4>
+    <h4 class="actions-title">{% trans "Actions" %}</h4>
     {% for field in action_form %}
       {{ field }}
     {% endfor %}

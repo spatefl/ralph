@@ -31,8 +31,8 @@ $font-size: rem-calc(16);
             .item {
                 line-height: 1rem;
                 display: inline-block;
-                background: #ededed;
-                border: 1px solid #cacaca;
+                background: var(--color-surface-overlay, $surface-overlay-color);
+                border: 1px solid var(--color-border, $border-color);
                 white-space: nowrap;
                 margin: 1px;
                 @include common-styles;
@@ -103,7 +103,7 @@ $font-size: rem-calc(16);
                     animation-duration: 1s;
                 }
             }
-            .loader {color: #444;}
+            .loader {color: var(--color-text-secondary, $body-font-color-muted);}
             .fail {color: $alert-color;}
             .success {color: $success-color;}
         }
@@ -139,7 +139,7 @@ $font-size: rem-calc(16);
                 padding: 5px;
             }
             &.selected {
-                background-color: #d8d9da;
+                background-color: rgba($primary-color, 0.2);
             }
         }
     }
@@ -160,8 +160,8 @@ $font-size: rem-calc(16);
 }
 
 .error .autocomplete-widget .widget-wrapper {
-    background-color: #fff5c3;
-    border-color: $alert-color;
+    background-color: var(--color-validation-bg, $validation-error-bg-color);
+    border-color: var(--color-validation-border, $validation-error-border-color);
     .input {
         border: none;
         box-shadow: none;

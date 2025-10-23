@@ -1,6 +1,7 @@
 /* all app scss styles here */
 body {
-    background-color: #fff;
+    background-color: var(--color-body-bg, $body-bg);
+    color: var(--color-text-primary, $body-font-color);
     .popup {
         .content {
             margin-top: 15px;
@@ -12,7 +13,8 @@ body {
     .content {
         border: 1px solid $tabs-border-color;
         padding: rem-calc(16) 0;
-        background-color: $tabs-content-bg-color;
+        background-color: var(--color-surface-elevated, $tabs-content-bg-color);
+        color: var(--color-text-primary, $body-font-color);
         h2 {
             font-size: rem-calc(16);
         }
@@ -26,7 +28,7 @@ ul.reset {
 }
 
 .columns.separator {
-    border-left: 1px solid #ddd;
+    border-left: 1px solid var(--color-border, $border-color);
 }
 
 .action-counter {
@@ -50,8 +52,20 @@ ul.reset {
     margin-bottom: 10px;
 }
 
+.sidebar.actions-and-filters {
+    background-color: var(--color-surface, $surface-color);
+    border-right: 1px solid var(--color-border-strong, $border-color);
+    color: var(--color-text-primary, $body-font-color);
+    h4 {
+        color: var(--color-text-primary, $body-font-color);
+    }
+    h6 {
+        color: var(--color-text-secondary, $body-font-color-muted);
+    }
+}
+
 #site-name > a {
-    color: #fff;
+    color: var(--color-text-primary, $body-font-color);
     text-shadow: 0 0 5px rgba(255, 255, 255, .6);
     &:hover {
         text-shadow: 0 0 7px rgb(255, 255, 255);
@@ -60,9 +74,37 @@ ul.reset {
 }
 
 select {
-    background-color: #fff;
+    background-color: var(--color-input-bg, $input-bg-color);
+    color: var(--color-text-primary, $input-font-color);
+    border: $input-border-width $input-border-style var(--color-input-border, $input-border-color);
 }
 
+select option {
+    background-color: var(--color-surface, $surface-color);
+    color: var(--color-text-primary, $body-font-color);
+}
+
+select,
+#{text-inputs(all, 'input')},
+textarea {
+    box-shadow: $input-box-shadow;
+    &:focus {
+        outline: 2px solid var(--color-focus-ring, $focus-ring-color);
+        outline-offset: 1px;
+    }
+}
+
+#{text-inputs(all, 'input')},
+textarea {
+    color: var(--color-text-primary, $input-font-color);
+    background-color: var(--color-input-bg, $input-bg-color);
+    border: $input-border-width $input-border-style var(--color-input-border, $input-border-color);
+}
+
+#{text-inputs(all, 'input')}::placeholder,
+textarea::placeholder {
+    color: var(--color-input-placeholder, $input-placeholder-color);
+}
 
 button.button.search {
     background-color: #5B5B5B;
@@ -136,7 +178,7 @@ input[type="file"] {
 
 .tooltip {
     .empty {
-        color: #999;
+        color: var(--color-text-secondary, $body-font-color-muted);
     }
 }
 
@@ -155,7 +197,7 @@ input[type="file"] {
 }
 
 i.empty {
-    color: #888;
+    color: var(--color-text-secondary, $body-font-color-muted);
     font-style: normal;
 }
 

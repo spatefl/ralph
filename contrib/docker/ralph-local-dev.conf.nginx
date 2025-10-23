@@ -5,7 +5,7 @@ server {
     server_name ralph;
 
     location /static/debug_toolbar {
-        proxy_pass http://web:8005;
+        proxy_pass http://assets-web:8005;
 
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -28,7 +28,7 @@ server {
     }
 
     location /ralph/ {
-        proxy_pass http://web:8005/;
+        proxy_pass http://assets-web:8005/;
 
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
