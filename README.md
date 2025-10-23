@@ -38,19 +38,19 @@ The `sirius-custom` branch ships with a full dockerised stack that mirrors the s
    ```
 
 2. **Review key configuration**
-   * `docker/Dockerfile-service` (Django + Node 22 build)
+   * `docker/Dockerfile-service` (Django + Node 18 build)
    * `docker/docker-compose-local-dev.yml`
    * `docker/provision/run-service.sh`
    * `docker/Dockerfile-inkpy`, `docker/Dockerfile-local-dev-static`
 
 3. **Required containers**
-   | Service | Image/Build | Notes |
-   |---------|-------------|-------|
-   | `web`   | `docker/Dockerfile-service` (Ubuntu Jammy, Python 3.10, Node 22) | Binds host port **8005** |
-   | `db`    | `mysql:8.0` with `--default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci` | |
-   | `redis` | `redis:7.0.11` | Default port 6379 |
-   | `inkpy` | `docker/Dockerfile-inkpy` | Worker subscribed to Redis |
-   | `nginx` | `docker/Dockerfile-local-dev-static` | Serves `/opt/static` + `/opt/media`, proxies `/ralph/` to the web container |
+| Service | Image/Build | Notes |
+|---------|-------------|-------|
+| `assets-web`   | `docker/Dockerfile-service` (Ubuntu Jammy, Python 3.10, Node 18) | Binds host port **8005** |
+| `assets-db`    | `mysql:8.0` with `--default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci` | |
+| `assets-redis` | `redis:7.0.11` | Internal-only (no host port published) |
+| `assets-inkpy` | `docker/Dockerfile-inkpy` | Worker subscribed to Redis |
+| `assets-nginx` | `docker/Dockerfile-local-dev-static` | Serves `/opt/static` + `/opt/media`, proxies `/ralph/` to the web container on host **18080** |
 
 4. **Environment / volumes**
    * Database env baked into compose (`DATABASE_NAME/USER/PASSWORD=ralph_ng`, host `db`, port `3306`)
@@ -62,22 +62,25 @@ The `sirius-custom` branch ships with a full dockerised stack that mirrors the s
    docker compose -f docker/docker-compose-local-dev.yml up --build
    ```
    * `run-service.sh` waits for MySQL, applies migrations, and launches `dev_ralph runserver --insecure 0.0.0.0:8005`
-   * Verify UI on `http://localhost:8005/login/` (direct) and `http://localhost:8080/ralph/` (nginx proxy)
+   * The gulp build honours `SKIP_BOWER=true` (set in the Dockerfile) so existing `bower_components/` bundles are reused; unset it locally if you need the task to fetch fresh dependencies.
+   * Verify UI on `http://localhost:8005/login/` (direct) and `http://localhost:18080/ralph/` (nginx proxy)
    * Create a superuser as needed:
      ```bash
-     docker compose -f docker/docker-compose-local-dev.yml exec web venv/bin/ralph createsuperuser
+     docker compose -f docker/docker-compose-local-dev.yml exec assets-web venv/bin/ralph createsuperuser
      ```
    * Tear down with `docker compose -f docker/docker-compose-local-dev.yml down` (add `-v` to drop the MySQL volume)
 
 6. **Firewall reminder (Ubuntu / UFW)**
    ```bash
    sudo ufw allow 8005/tcp
+   sudo ufw allow 18080/tcp
    sudo ufw status
    ```
 
 7. **SC3 integration notes**
-   * Proxy `/assets/` on SC3’s nginx to the Ralph nginx container (map host port **8005** to container `80`)
-   * Give each service unique names (`assets-web`, `assets-db`, …) inside the SC3 compose file
+   * Proxy `/assets/` on SC3’s nginx to the Ralph nginx container (map host port **18080** to container `80`, or wire it through an internal network-only route)
+   * After rearranging top-level navigation in `src/ralph/admin/sitetrees.py`, run `ralph sitetree_resync_apps` inside the `assets-web` container so the database copy of the menu reflects your changes.
+   * Give each service unique names (`assets-web`, `assets-db`, …) inside the SC3 compose file (the local compose already adopts these names to avoid collisions)
    * Mount dedicated volumes for MySQL data and media/static
    * Add simple HTTP health checks (`/login/`, `/admin/`) so SC3 waits for the service
    * Configure `RALPH_URL=http://assets-web:8005` and `VITE_ASSETS_URL=http://localhost:8005/assets`
