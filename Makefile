@@ -6,8 +6,27 @@ PYTHON_BIN?=python3.10
 VENV_DIR?=venv
 VENV_PIP=$(VENV_DIR)/bin/pip
 VENV_PYTHON=$(VENV_DIR)/bin/python
+DATABASE_NAME?=ralph_ng
+DATABASE_USER?=ralph_ng
+DATABASE_TEST_NAME?=test_$(DATABASE_NAME)
 
-.PHONY: test flake clean coverage docs coveralls venv venv-install-dev venv-clean
+COMPOSE?=docker compose
+STACK_COMPOSE_FILE?=docker/docker-compose-local-dev.yml
+STACK_WEB_SERVICE?=assets-web
+STACK_DB_SERVICE?=assets-db
+TMP_LOG_DIR?=tmp/logs
+LOGS_TAIL?=200
+FRONTEND_TEST?=npm run test
+CONTAINER_SHELL?=/bin/sh -lc
+SITETREE_CMD?=ralph sitetree_resync_apps
+DB_WAIT_RETRIES?=24
+DB_WAIT_SLEEP?=5
+export DB_WAIT_RETRIES
+export DB_WAIT_SLEEP
+DB_WAIT_CMD?=cd /opt/sirius-ralph && \
+  DB_WAIT_RETRIES=$(DB_WAIT_RETRIES) DB_WAIT_SLEEP=$(DB_WAIT_SLEEP) scripts/wait_for_db.sh
+
+.PHONY: test flake clean clean-pyc stack-clean coverage docs coveralls venv venv-install-dev venv-clean up logs
 
 # release-new-version is used by ralph mainteiners prior to publishing
 # new version of the package. The command generates the debian changelog
@@ -130,8 +149,18 @@ flake: isort
 checks:
 	ruff check src
 
-clean:
+clean: clean-pyc stack-clean
+
+clean-pyc:
 	find . -name '*.py[cod]' -delete;
+
+stack-clean:
+ifeq ($(SKIP_STACK_CLEAN),)
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) down --volumes --remove-orphans --rmi all || true
+	rm -rf $(TMP_LOG_DIR)
+else
+	@echo "Skipping stack cleanup (SKIP_STACK_CLEAN=$(SKIP_STACK_CLEAN))"
+endif
 
 coverage: clean
 	coverage run $(shell which test_ralph) test $(TEST) -v 2 --keepdb --settings="ralph.settings.test"
@@ -151,3 +180,20 @@ translate_messages:
 
 compile_messages:
 	ralph compilemessages
+
+up:
+	mkdir -p $(TMP_LOG_DIR)
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) up --build -d
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) exec -T $(STACK_WEB_SERVICE) $(CONTAINER_SHELL) "$(DB_WAIT_CMD)"
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) exec -T $(STACK_DB_SERVICE) /bin/sh -lc "mysql -uroot -p\$$MYSQL_ROOT_PASSWORD -e \"DROP DATABASE IF EXISTS $(DATABASE_TEST_NAME); GRANT ALL PRIVILEGES ON $(DATABASE_TEST_NAME).* TO '$(DATABASE_USER)'@'%'; GRANT CREATE, DROP ON *.* TO '$(DATABASE_USER)'@'%'; FLUSH PRIVILEGES;\""
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) exec -T $(STACK_WEB_SERVICE) $(CONTAINER_SHELL) "$(SITETREE_CMD)"
+
+logs:
+	mkdir -p $(TMP_LOG_DIR)
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) ps | tee $(TMP_LOG_DIR)/docker-ps.log
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) logs --tail=$(LOGS_TAIL) | tee $(TMP_LOG_DIR)/docker-compose.log
+	@set -o pipefail; $(FRONTEND_TEST) | tee $(TMP_LOG_DIR)/frontend-test.log
+ifneq ($(WATCH),)
+	@echo "Streaming docker logs (Ctrl+C to stop)…"
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) logs -f | tee -a $(TMP_LOG_DIR)/docker-compose.log
+endif

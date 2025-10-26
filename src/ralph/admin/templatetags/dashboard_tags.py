@@ -7,7 +7,7 @@ from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, Sum
 from django.template import Library
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
@@ -200,19 +200,17 @@ def ralph_summary(context):
     models = [
         "data_center.DataCenterAsset",
         "back_office.BackOfficeAsset",
-        "licences.Licence",
-        "supports.Support",
-        "domains.Domain",
         "accounts.RalphUser",
     ]
     results = []
+    overview_tiles = []
     for model_name in models:
         app, model = model_name.split(".")
         model = apps.get_model(app, model)
         meta = model._meta
         if not user.has_perm("{}.view_{}".format(app, meta.model_name)):
             continue
-        results.append(
+        overview_tiles.append(
             {
                 "label": meta.verbose_name_plural,
                 "count": model.objects.count(),
@@ -223,6 +221,77 @@ def ralph_summary(context):
                 ),
             }
         )
+
+    def build_tile(label, count, url, css_class=None):
+        if css_class is None:
+            css_class = slugify(label)
+        return {
+            "label": label,
+            "count": count,
+            "class": css_class,
+            "icon": "icon",
+            "url": url,
+        }
+
+    category_tiles = []
+
+    # Heavy Equipment (Asset category DRHE)
+    Asset = apps.get_model("assets", "Asset")
+    Category = apps.get_model("assets", "Category")
+    try:
+        heavy_equipment_category = Category.objects.get(code="DRHE")
+    except Category.DoesNotExist:
+        heavy_equipment_count = 0
+        heavy_equipment_url = reverse("admin:assets_asset_changelist")
+    else:
+        descendants = heavy_equipment_category.get_descendants(include_self=True)
+        heavy_equipment_count = Asset.objects.filter(
+            model__category__in=descendants
+        ).count()
+        heavy_equipment_url = "{}?model__category__id__exact={}".format(
+            reverse("admin:assets_asset_changelist"), heavy_equipment_category.id
+        )
+
+    if user.has_perm("assets.view_asset"):
+        category_tiles.append(
+            build_tile(
+                label=_("Heavy Equipment"),
+                count=heavy_equipment_count,
+                url=heavy_equipment_url,
+                css_class="heavy-equipment",
+            )
+        )
+
+    custom_models = [
+        ("fleet", "Vehicle", _("Fleet Vehicles"), "fleet_vehicle"),
+        ("drones", "Drone", _("Drones"), "drones"),
+        ("sensors", "Sensor", _("Sensors"), "sensors"),
+    ]
+
+    for app_label, model_name, label, css_class in custom_models:
+        model = apps.get_model(app_label, model_name)
+        perm = "{}.view_{}".format(app_label, model._meta.model_name)
+        if user.has_perm(perm):
+            try:
+                changelist_url = reverse(
+                    "admin:{}_{}_changelist".format(
+                        model._meta.app_label, model._meta.model_name
+                    )
+                )
+            except NoReverseMatch:
+                continue
+            category_tiles.append(
+                build_tile(
+                    label=label,
+                    count=model.objects.count(),
+                    url=changelist_url,
+                    css_class=css_class,
+                )
+            )
+
+    results.extend(category_tiles)
+    results.extend(overview_tiles)
+
     results.append(get_user_equipment_tile_data(user=user))
     accept_tile_data = get_user_equipment_to_accept_tile_data(user=user)
     if accept_tile_data:

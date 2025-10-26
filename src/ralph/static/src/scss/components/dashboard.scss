@@ -158,6 +158,22 @@
                 background: $mdc-indigo-500;
                 .icon:before {content: $fa-var-users;}
             }
+            &.heavy-equipment .wrapper {
+                background: $mdc-brown-500;
+                .icon:before {content: $fa-var-truck;}
+            }
+            &.fleet_vehicle .wrapper {
+                background: $mdc-blue-500;
+                .icon:before {content: $fa-var-car;}
+            }
+            &.drones .wrapper {
+                background: $mdc-cyan-600;
+                .icon:before {content: $fa-var-paper-plane;}
+            }
+            &.sensors .wrapper {
+                background: $mdc-orange-500;
+                .icon:before {content: $fa-var-bullseye;}
+            }
             &.my-equipment .wrapper {
                 background: $mdc-teal-500;
                 .icon:before {content: $fa-var-cubes;}
