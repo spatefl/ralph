@@ -8,6 +8,12 @@ However, we are not operating under a contribution-based model. While we welcome
 
 We sincerely appreciate all past contributions that have shaped Ralph into the powerful tool it is today, and encourage the community to continue using it.
 
+## What's new in sirius-custom (Feb 2025)
+
+- New domain-specific Django apps for Fleet, Drones, and Sensors capture assignments, usage, maintenance, and status logs; the admin now exposes them through dedicated sitetree menus alongside placeholder Heavy Equipment categories.
+- Shared lifecycle utilities (`src/ralph/lib/lifecycle/`) enforce guarded status transitions and emit structured audit trails that back the new apps.
+- Local development helpers wrap Docker Compose via `make up`, `make logs`, and `make clean`, exporting `DATABASE_TEST_NAME` so Django tests run against the containerised MySQL service by default.
+
 
 ## Overview
 
@@ -53,22 +59,28 @@ The `sirius-custom` branch ships with a full dockerised stack that mirrors the s
 | `assets-nginx` | `docker/Dockerfile-local-dev-static` | Serves `/opt/static` + `/opt/media`, proxies `/ralph/` to the web container on host **18080** |
 
 4. **Environment / volumes**
-   * Database env baked into compose (`DATABASE_NAME/USER/PASSWORD=ralph_ng`, host `db`, port `3306`)
+   * Database env baked into compose (`DATABASE_NAME/USER/PASSWORD=ralph_ng`, `DATABASE_TEST_NAME=test_ralph_ng`, host `db`, port `3306`)
    * Redis env (`REDIS_HOST=redis`, port `6379`)
    * Named volume `ralph_dbdata` → `/var/lib/mysql` (persistent DB data)
 
 5. **Build & smoke test**
    ```bash
-   docker compose -f docker/docker-compose-local-dev.yml up --build
+   make up        # docker compose up --build + wait-for-db + sitetree sync
    ```
    * `run-service.sh` waits for MySQL, applies migrations, and launches `dev_ralph runserver --insecure 0.0.0.0:8005`
    * The gulp build honours `SKIP_BOWER=true` (set in the Dockerfile) so existing `bower_components/` bundles are reused; unset it locally if you need the task to fetch fresh dependencies.
+   * `make logs` captures `docker ps`, `docker compose logs`, runs the frontend build, and (optionally) tails the compose output when `WATCH=1 make logs` is used.
+   * Backend tests run inside the web container so they always use the containerised MySQL and Redis:
+     ```bash
+     docker compose -f docker/docker-compose-local-dev.yml exec assets-web venv/bin/ralph test ralph.admin.tests.test_templatetags
+     ```
+     The Makefile drops any stale `test_ralph_ng` database and grants the app user create/drop privileges during `make up`, so the Django test runner can recreate its schema without manual SQL.
    * Verify UI on `http://localhost:8005/login/` (direct) and `http://localhost:18080/ralph/` (nginx proxy)
    * Create a superuser as needed:
      ```bash
      docker compose -f docker/docker-compose-local-dev.yml exec assets-web venv/bin/ralph createsuperuser
      ```
-   * Tear down with `docker compose -f docker/docker-compose-local-dev.yml down` (add `-v` to drop the MySQL volume)
+   * Tear down with `make clean` (includes `docker compose down --volumes` and removes `tmp/logs/`).
 
 6. **Firewall reminder (Ubuntu / UFW)**
    ```bash
@@ -77,9 +89,13 @@ The `sirius-custom` branch ships with a full dockerised stack that mirrors the s
    sudo ufw status
    ```
 
-7. **SC3 integration notes**
+7. **Admin navigation update**
+   * `src/ralph/admin/sitetrees.py` now exposes dedicated top-level menus for **Heavy Equipment**, **Fleet**, **Drones**, and **Sensors**. Legacy “Cloud”, “Networks”, “Licenses”, and “Intellectual Property” menus are hidden but the underlying apps remain available if needed later.
+   * After modifying the sitetree (or pulling updates), run `make up` or manually execute `ralph sitetree_resync_apps` inside the `assets-web` container so cached menus stay in sync.
+
+8. **SC3 integration notes**
    * Proxy `/assets/` on SC3’s nginx to the Ralph nginx container (map host port **18080** to container `80`, or wire it through an internal network-only route)
-   * After rearranging top-level navigation in `src/ralph/admin/sitetrees.py`, run `ralph sitetree_resync_apps` inside the `assets-web` container so the database copy of the menu reflects your changes.
+   * Use `make up` / `make logs` to rebuild and collect logs before packaging for SC3. The `DB_WAIT_*` knobs in the Makefile control how long we wait for MySQL before failing the build.
    * Give each service unique names (`assets-web`, `assets-db`, …) inside the SC3 compose file (the local compose already adopts these names to avoid collisions)
    * Mount dedicated volumes for MySQL data and media/static
    * Add simple HTTP health checks (`/login/`, `/admin/`) so SC3 waits for the service
