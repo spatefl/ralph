@@ -88,25 +88,79 @@ sitetrees = [
         "ralph_admin",
         items=[
             ralph_item(
+                title=_("Heavy Equipment"),
+                url="#",
+                url_as_pattern=False,
+                perms_mode_all=False,
+                children=[
+                    ralph_item(
+                        title=_("Generators"),
+                        url="#",
+                        url_as_pattern=False,
+                        perms_mode_all=False,
+                        children=[],
+                    ),
+                    ralph_item(
+                        title=_("Command Trailers"),
+                        url="#",
+                        url_as_pattern=False,
+                        perms_mode_all=False,
+                        children=[],
+                    ),
+                    ralph_item(
+                        title=_("Construction Equipment"),
+                        url="#",
+                        url_as_pattern=False,
+                        perms_mode_all=False,
+                        children=[],
+                    ),
+                    ralph_item(
+                        title=_("Porta Potties"),
+                        url="#",
+                        url_as_pattern=False,
+                        perms_mode_all=False,
+                        children=[],
+                    ),
+                ],
+            ),
+            ralph_item(
                 title=_("Fleet"),
                 url="#",
                 url_as_pattern=False,
                 perms_mode_all=False,
-                children=[],
+                children=[
+                    section(_("Vehicles"), "fleet", "Vehicle"),
+                    section(_("Vehicle Assignments"), "fleet", "VehicleAssignment"),
+                    section(_("Vehicle Usage Logs"), "fleet", "VehicleUsageLog"),
+                    section(_("Vehicle Maintenance Logs"), "fleet", "VehicleMaintenanceLog"),
+                    section(_("Vehicle Status Logs"), "fleet", "VehicleStatusLog"),
+                ],
             ),
             ralph_item(
                 title=_("Drones"),
                 url="#",
                 url_as_pattern=False,
                 perms_mode_all=False,
-                children=[],
+                children=[
+                    section(_("Drones"), "drones", "Drone"),
+                    section(_("Drone Assignments"), "drones", "DroneAssignment"),
+                    section(_("Drone Flight Logs"), "drones", "DroneFlightLog"),
+                    section(_("Drone Maintenance Logs"), "drones", "DroneMaintenanceLog"),
+                    section(_("Drone Status Logs"), "drones", "DroneStatusLog"),
+                ],
             ),
             ralph_item(
                 title=_("Sensors"),
                 url="#",
                 url_as_pattern=False,
                 perms_mode_all=False,
-                children=[],
+                children=[
+                    section(_("Sensors"), "sensors", "Sensor"),
+                    section(_("Sensor Assignments"), "sensors", "SensorAssignment"),
+                    section(_("Sensor Uptime Logs"), "sensors", "SensorUptimeLog"),
+                    section(_("Sensor Maintenance Logs"), "sensors", "SensorMaintenanceLog"),
+                    section(_("Sensor Status Logs"), "sensors", "SensorStatusLog"),
+                ],
             ),
             ralph_item(
                 title=_("Data Center"),
@@ -138,19 +192,6 @@ sitetrees = [
                 ],
             ),
             ralph_item(
-                title=_("Cloud"),
-                url="#",
-                url_as_pattern=False,
-                perms_mode_all=False,
-                children=[
-                    section(_("Cloud hosts"), "virtual", "CloudHost"),
-                    section(_("Cloud projects"), "virtual", "CloudProject"),
-                    section(_("Cloud flavors"), "virtual", "CloudFlavor"),
-                    section(_("Cloud providers"), "virtual", "CloudProvider"),
-                    section(_("Cloud images"), "virtual", "CloudImage"),
-                ],
-            ),
-            ralph_item(
                 title=_("Back Office"),
                 url="#",
                 url_as_pattern=False,
@@ -160,55 +201,6 @@ sitetrees = [
                     section(_("Hardware"), "back_office", "backofficeasset"),
                     section(_("SIM Cards"), "sim_cards", "SIMCard"),
                     section(_("Accessory"), "accessories", "Accessory"),
-                ],
-            ),
-            ralph_item(
-                title=_("Networks"),
-                url="#",
-                url_as_pattern=False,
-                perms_mode_all=False,
-                children=[
-                    section(_("Networks"), "networks", "network"),
-                    section(
-                        _("Network environments"), "networks", "networkenvironment"
-                    ),
-                    section(_("Network kind"), "networks", "networkkind"),
-                    section(_("IP Addresses"), "networks", "ipaddress"),
-                    section(_("DHCP Servers"), "dhcp", "DHCPServer"),
-                    section(_("DNS Server Groups"), "dhcp", "DNSServerGroup"),
-                    section(_("DNS Servers"), "dhcp", "DNSServer"),
-                ],
-            ),
-            ralph_item(
-                title=_("Licenses"),
-                url="#",
-                url_as_pattern=False,
-                perms_mode_all=False,
-                children=[
-                    section(_("Licences"), "licences", "Licence"),
-                    section(_("Types"), "licences", "LicenceType"),
-                    section(_("Software"), "licences", "Software"),
-                ],
-            ),
-            ralph_item(
-                title=_("Intellectual Property"),
-                url="#",
-                url_as_pattern=False,
-                perms_mode_all=False,
-                children=[
-                    section(_("Trade Marks"), "trade_marks", "TradeMark"),
-                    section(_("Designs"), "trade_marks", "Design"),
-                    section(_("Patents"), "trade_marks", "Patent"),
-                    section(_("Utility Models"), "trade_marks", "UtilityModel"),
-                    section(_("Domains"), "domains", "Domain"),
-                    section(_("Contracts"), "domains", "DomainContract"),
-                    section(_("Registrants"), "domains", "DomainRegistrant"),
-                    section(_("Owners"), "accounts", "RalphUser"),
-                    section(_("DNS Providers"), "domains", "DNSProvider"),
-                    section(_("Domain Categories"), "domains", "DomainCategory"),
-                    section(
-                        _("SSL Certificates"), "ssl_certificates", "SSLCertificate"
-                    ),
                 ],
             ),
             ralph_item(

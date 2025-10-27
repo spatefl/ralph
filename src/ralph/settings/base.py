@@ -87,6 +87,9 @@ INSTALLED_APPS = (
     "ralph.assets",
     "ralph.attachments",
     "ralph.back_office",
+    "ralph.fleet",
+    "ralph.drones",
+    "ralph.sensors",
     "ralph.configuration_management",
     "ralph.dashboards",
     "ralph.data_center",
@@ -182,18 +185,27 @@ DATABASE_SSL_CA = os.environ.get("DATABASE_SSL_CA", None)
 if DATABASE_SSL_CA:
     DATABASE_OPTIONS.update({"ssl": {"ca": DATABASE_SSL_CA}})
 
+DEFAULT_DATABASE_NAME = os.environ.get("DATABASE_NAME", "ralph_ng")
+DEFAULT_DATABASE_USER = os.environ.get("DATABASE_USER", "ralph_ng")
+DEFAULT_DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD", "ralph_ng") or None
+DEFAULT_DATABASE_HOST = os.environ.get("DATABASE_HOST", "127.0.0.1")
+DEFAULT_DATABASE_PORT = os.environ.get("DATABASE_PORT", 3306)
+DEFAULT_TEST_DATABASE_NAME = os.environ.get(
+    "DATABASE_TEST_NAME", "test_{}".format(DEFAULT_DATABASE_NAME)
+)
+
 DATABASES = {
     "default": {
         "ENGINE": os.environ.get("DATABASE_ENGINE", "django.db.backends.mysql"),  # noqa
-        "NAME": os.environ.get("DATABASE_NAME", "ralph_ng"),
-        "USER": os.environ.get("DATABASE_USER", "ralph_ng"),
-        "PASSWORD": os.environ.get("DATABASE_PASSWORD", "ralph_ng") or None,
-        "HOST": os.environ.get("DATABASE_HOST", "127.0.0.1"),
-        "PORT": os.environ.get("DATABASE_PORT", 3306),
+        "NAME": DEFAULT_DATABASE_NAME,
+        "USER": DEFAULT_DATABASE_USER,
+        "PASSWORD": DEFAULT_DATABASE_PASSWORD,
+        "HOST": DEFAULT_DATABASE_HOST,
+        "PORT": DEFAULT_DATABASE_PORT,
         "OPTIONS": DATABASE_OPTIONS,
         "ATOMIC_REQUESTS": True,
         "TEST": {
-            "NAME": "test_ralph_ng",
+            "NAME": DEFAULT_TEST_DATABASE_NAME,
         },
     }
 }

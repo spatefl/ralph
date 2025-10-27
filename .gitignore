@@ -6,6 +6,7 @@ __pycache__/
 *.so
 volumes
 venv/
+tmp/
 
 # Distribution / packaging
 .Python

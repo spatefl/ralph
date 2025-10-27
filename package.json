@@ -6,7 +6,8 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "gulp"
+    "build": "gulp",
+    "test": "SKIP_BOWER=true npm run build"
   },
   "dependencies": {
     "bower": "^1.8.14",

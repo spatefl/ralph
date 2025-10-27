@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div class="lifecycle-status-action">
+  <h1>{{ title }}</h1>
+  <p class="help">{% blocktrans with status=target_status_label %}Confirm status change to {{ status }} for the selected objects.{% endblocktrans %}</p>
+  <form action="" method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="{{ action_name }}">
+    <input type="hidden" name="post" value="yes">
+    {% if select_across %}
+      <input type="hidden" name="select_across" value="{{ select_across }}">
+    {% endif %}
+    {% for hidden in form.hidden_fields %}
+      {{ hidden }}
+    {% endfor %}
+    {% for obj in objects %}
+      <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk }}">
+    {% endfor %}
+    <div class="form-row">
+      {% for field in form.visible_fields %}
+        <div class="fieldBox">
+          <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}*{% endif %}</label>
+          {{ field }}
+          {% if field.help_text %}
+            <p class="help">{{ field.help_text }}</p>
+          {% endif %}
+          {% for error in field.errors %}
+            <p class="errornote">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+    <div class="submit-row">
+      <button type="submit" class="default button" name="apply" value="true">
+        {% trans "Apply" %}
+      </button>
+      <a href="." class="button cancel-link">{% trans "Cancel" %}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
