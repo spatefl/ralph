@@ -2,9 +2,15 @@ from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.decorators import register
 from ralph.admin.mixins import RalphAdmin
+from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
-from ralph.assets.admin import MaintenanceRecordInline
+from ralph.assets.admin import (
+    MaintenanceRecordInline,
+    ComplianceRecordInline,
+    DeploymentEntryInline,
+    TelemetryReadingInline,
+)
 from ralph.heavy_equipment.models import (
     HEAVY_EQUIPMENT_GROUP_MAP,
     HeavyEquipmentAsset,
@@ -27,6 +33,50 @@ class HeavyEquipmentAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.fo
         service_env_field = self.fields.get("service_env")
         if service_env_field:
             service_env_field.required = False
+
+
+class HeavyEquipmentOperationsView(RalphDetailViewAdmin):
+    icon = "cogs"
+    name = "operations"
+    label = _("Operations")
+    url_name = "operations"
+    inlines = [MaintenanceRecordInline, DeploymentEntryInline]
+    summary_fields = [
+        "status",
+        "assigned_location",
+        "hours_used",
+        "odometer_km",
+        "next_service_date",
+        "next_service_hours",
+    ]
+
+
+class HeavyEquipmentComplianceView(RalphDetailViewAdmin):
+    icon = "shield"
+    name = "compliance"
+    label = _("Compliance")
+    url_name = "compliance"
+    inlines = [ComplianceRecordInline]
+    summary_fields = [
+        "last_service_date",
+        "next_service_date",
+        "assigned_location",
+    ]
+
+
+class HeavyEquipmentDataView(RalphDetailViewAdmin):
+    icon = "line-chart"
+    name = "data"
+    label = _("Telemetry")
+    url_name = "telemetry"
+    inlines = [TelemetryReadingInline]
+    summary_fields = [
+        "hours_used",
+        "fuel_level_percent",
+        "water_level_percent",
+        "battery_level_percent",
+        "last_status_change",
+    ]
 
 
 @register(HeavyEquipmentAsset)
@@ -168,10 +218,20 @@ class HeavyEquipmentAssetAdmin(
             },
         ),
     )
+    change_views = [
+        HeavyEquipmentOperationsView,
+        HeavyEquipmentComplianceView,
+        HeavyEquipmentDataView,
+    ]
+
+    def __init__(self, *args, **kwargs):
+        self.change_views = list(self.change_views or [])
+        super().__init__(*args, **kwargs)
 
 
 class HeavyEquipmentGroupAdmin(HeavyEquipmentAssetAdmin):
     functional_group_filter = None
+    change_views = []
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)

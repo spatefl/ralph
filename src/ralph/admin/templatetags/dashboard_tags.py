@@ -8,6 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, Sum
 from django.template import Library
 from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
@@ -27,7 +28,14 @@ from ralph.accounts.helpers import (
     get_test_asset_acceptance_url,
     get_test_assets_to_accept,
 )
-from ralph.assets.models import BaseObject, Service, ServiceEnvironment
+from ralph.assets.models import (
+    BaseObject,
+    Service,
+    ServiceEnvironment,
+    MaintenanceRecord,
+    ComplianceRecord,
+    DeploymentEntry,
+)
 from ralph.back_office.models import BackOfficeAsset
 from ralph.data_center.models import DataCenter, DataCenterAsset, Rack, RackAccessory
 
@@ -222,7 +230,7 @@ def ralph_summary(context):
             }
         )
 
-    def build_tile(label, count, url, css_class=None):
+    def build_tile(label, count, url, css_class=None, meta=None):
         if css_class is None:
             css_class = slugify(label)
         return {
@@ -231,63 +239,107 @@ def ralph_summary(context):
             "class": css_class,
             "icon": "icon",
             "url": url,
+            "meta": meta or [],
         }
 
     category_tiles = []
 
-    # Heavy Equipment (Asset category DRHE)
-    Asset = apps.get_model("assets", "Asset")
-    Category = apps.get_model("assets", "Category")
-    try:
-        heavy_equipment_category = Category.objects.get(code="DRHE")
-    except Category.DoesNotExist:
-        heavy_equipment_count = 0
-        heavy_equipment_url = reverse("admin:assets_asset_changelist")
-    else:
-        descendants = heavy_equipment_category.get_descendants(include_self=True)
-        heavy_equipment_count = Asset.objects.filter(
-            model__category__in=descendants
-        ).count()
-        heavy_equipment_url = "{}?model__category__id__exact={}".format(
-            reverse("admin:assets_asset_changelist"), heavy_equipment_category.id
+    def build_lifecycle_meta(queryset):
+        base_ids = queryset.values_list("id", flat=True)
+        maintenance_overdue = (
+            MaintenanceRecord.objects.overdue()
+            .filter(base_object_id__in=base_ids)
+            .count()
+        )
+        maintenance_open = (
+            MaintenanceRecord.objects.open()
+            .filter(base_object_id__in=base_ids)
+            .count()
+        )
+        today = timezone.now().date()
+        compliance_overdue = (
+            ComplianceRecord.objects.filter(base_object_id__in=base_ids)
+            .filter(expires_on__lt=today)
+            .count()
+        )
+        compliance_due_soon = (
+            ComplianceRecord.objects.upcoming(30)
+            .filter(base_object_id__in=base_ids)
+            .count()
+        )
+        active_deployments = (
+            DeploymentEntry.objects.filter(base_object_id__in=base_ids, ended_at__isnull=True)
+            .count()
         )
 
-    if user.has_perm("assets.view_asset"):
-        category_tiles.append(
-            build_tile(
-                label=_("Heavy Equipment"),
-                count=heavy_equipment_count,
-                url=heavy_equipment_url,
-                css_class="heavy-equipment",
-            )
-        )
+        meta = [
+            {
+                "label": _("Maint. overdue"),
+                "value": maintenance_overdue,
+                "class": "alert" if maintenance_overdue else "",
+            },
+            {
+                "label": _("Maint. open"),
+                "value": maintenance_open,
+                "class": "warning" if maintenance_open and not maintenance_overdue else "",
+            },
+            {
+                "label": _("Compliance 30d"),
+                "value": compliance_due_soon,
+                "class": "warning" if compliance_due_soon else "",
+            },
+            {
+                "label": _("Compliance overdue"),
+                "value": compliance_overdue,
+                "class": "alert" if compliance_overdue else "",
+            },
+            {
+                "label": _("Deployed"),
+                "value": active_deployments,
+                "class": "info" if active_deployments else "",
+            },
+        ]
 
-    custom_models = [
-        ("fleet", "Vehicle", _("Fleet Vehicles"), "fleet_vehicle"),
-        ("drones", "Drone", _("Drones"), "drones"),
-        ("sensors", "Sensor", _("Sensors"), "sensors"),
+        # show only metrics with non-zero value or the first three if all zero
+        significant_meta = [item for item in meta if item["value"]]
+        if not significant_meta:
+            significant_meta = meta[:3]
+        return significant_meta[:3]
+
+    asset_tiles = [
+        ("heavy_equipment", "HeavyEquipmentAsset", _("Heavy Equipment"), "heavy-equipment"),
+        ("fleet", "FleetAsset", _("Fleet Assets"), "fleet-assets"),
+        ("drones", "DroneAsset", _("Drones"), "drones"),
+        ("sensors", "SensorAsset", _("Sensors"), "sensors"),
     ]
 
-    for app_label, model_name, label, css_class in custom_models:
-        model = apps.get_model(app_label, model_name)
-        perm = "{}.view_{}".format(app_label, model._meta.model_name)
-        if user.has_perm(perm):
-            try:
-                changelist_url = reverse(
-                    "admin:{}_{}_changelist".format(
-                        model._meta.app_label, model._meta.model_name
-                    )
-                )
-            except NoReverseMatch:
-                continue
-            category_tiles.append(
-                build_tile(
-                    label=label,
-                    count=model.objects.count(),
-                    url=changelist_url,
-                    css_class=css_class,
+    for app_label, model_name, label, css_class in asset_tiles:
+        try:
+            model = apps.get_model(app_label, model_name)
+        except LookupError:
+            continue
+        perm = f"{app_label}.view_{model._meta.model_name}"
+        if not user.has_perm(perm):
+            continue
+        try:
+            changelist_url = reverse(
+                "admin:{}_{}_changelist".format(
+                    model._meta.app_label, model._meta.model_name
                 )
             )
+        except NoReverseMatch:
+            continue
+        queryset = model.objects.all()
+        meta = build_lifecycle_meta(queryset)
+        category_tiles.append(
+            build_tile(
+                label=label,
+                count=queryset.count(),
+                url=changelist_url,
+                css_class=css_class,
+                meta=meta,
+            )
+        )
 
     results.extend(category_tiles)
     results.extend(overview_tiles)

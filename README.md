@@ -13,6 +13,10 @@ We sincerely appreciate all past contributions that have shaped Ralph into the p
 - New domain-specific Django apps for Fleet, Drones, and Sensors capture assignments, usage, maintenance, and status logs; the admin now exposes them through dedicated sitetree menus alongside placeholder Heavy Equipment categories.
 - Shared lifecycle utilities (`src/ralph/lib/lifecycle/`) enforce guarded status transitions and emit structured audit trails that back the new apps.
 - Local development helpers wrap Docker Compose via `make up`, `make logs`, and `make clean`, exporting `DATABASE_TEST_NAME` so Django tests run against the containerised MySQL service by default.
+- Cross-cutting lifecycle models (`ComplianceRecord`, `DeploymentEntry`, `TelemetryReading`) now hang off every asset, tracking inspections, deployments, and telemetry events in one place.
+- Each asset admin (Heavy Equipment, Fleet, Drones, Sensors) gained Operations, Compliance, and Telemetry tabs so maintenance logs, compliance records, deployment history, and telemetry readings are visible without leaving the detail page.
+- Fleet/Drones/Heavy Equipment/Sensor APIs expose the same lifecycle data (latest maintenance/compliance/deployment/telemetry summaries) for SC3 dashboards and automation.
+- Dashboard tiles render lifecycle alerts (open maintenance, expiring compliance, active deployments) so operations teams see hot spots at a glance.
 
 
 ## Overview

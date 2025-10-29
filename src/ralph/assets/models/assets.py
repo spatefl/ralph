@@ -729,3 +729,220 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         if not self.expected_completion:
             return False
         return self.expected_completion < timezone.now().date()
+
+
+class ComplianceRecordType(Choices):
+    _ = Choices.Choice
+
+    inspection = _("inspection")
+    certification = _("certification")
+    permit = _("permit")
+    registration = _("registration")
+    insurance = _("insurance")
+    calibration = _("calibration")
+    other = _("other")
+
+
+class ComplianceRecordStatus(Choices):
+    _ = Choices.Choice
+
+    compliant = _("compliant")
+    due_soon = _("due soon")
+    overdue = _("overdue")
+    failed = _("failed")
+
+
+class ComplianceRecordQuerySet(models.QuerySet):
+    def upcoming(self, within_days=30):
+        today = timezone.now().date()
+        deadline = today + timedelta(days=within_days)
+        return self.filter(
+            expires_on__gte=today,
+            expires_on__lte=deadline,
+        )
+
+    def overdue(self):
+        today = timezone.now().date()
+        return self.filter(expires_on__lt=today)
+
+
+class ComplianceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    base_object = models.ForeignKey(
+        BaseObject,
+        related_name="compliance_records",
+        on_delete=models.CASCADE,
+    )
+    record_type = models.PositiveIntegerField(
+        choices=ComplianceRecordType(),
+        default=ComplianceRecordType.inspection.id,
+    )
+    status = models.PositiveIntegerField(
+        choices=ComplianceRecordStatus(),
+        default=ComplianceRecordStatus.compliant.id,
+    )
+    title = models.CharField(max_length=128)
+    description = models.TextField(blank=True)
+    performed_on = models.DateField(null=True, blank=True)
+    expires_on = models.DateField(null=True, blank=True)
+    performed_by = models.CharField(max_length=128, blank=True)
+    reference = models.CharField(
+        max_length=128,
+        blank=True,
+        help_text=_("External ticket, certificate or permit reference."),
+    )
+    document_url = models.URLField(
+        blank=True,
+        help_text=_("Link to compliance document or evidence."),
+    )
+    notes = models.TextField(blank=True)
+
+    objects = ComplianceRecordQuerySet.as_manager()
+
+    class Meta:
+        ordering = ("expires_on", "title")
+        verbose_name = _("Compliance record")
+        verbose_name_plural = _("Compliance records")
+        indexes = [
+            models.Index(fields=["base_object", "expires_on"]),
+        ]
+
+    def __str__(self):
+        return "{} – {}".format(self.get_record_type_display(), self.title)
+
+    def clean(self):
+        if self.expires_on and self.performed_on and self.expires_on < self.performed_on:
+            raise ValidationError(_("Expiry date cannot be earlier than performed date."))
+
+    @property
+    def is_overdue(self):
+        if not self.expires_on:
+            return False
+        return self.expires_on < timezone.now().date()
+
+    @property
+    def is_due_soon(self):
+        if not self.expires_on:
+            return False
+        soon_threshold = timezone.now().date() + timedelta(days=30)
+        return timezone.now().date() <= self.expires_on <= soon_threshold
+
+
+class DeploymentStatus(Choices):
+    _ = Choices.Choice
+
+    deployed = _("deployed / in use")
+    transit = _("in transit")
+    maintenance = _("maintenance")
+    storage = _("storage / standby")
+    retired = _("retired")
+
+
+class DeploymentEntry(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    base_object = models.ForeignKey(
+        BaseObject,
+        related_name="deployment_entries",
+        on_delete=models.CASCADE,
+    )
+    status = models.PositiveIntegerField(
+        choices=DeploymentStatus(),
+        default=DeploymentStatus.deployed.id,
+    )
+    assigned_to_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deployment_assignments",
+    )
+    assigned_to_team = models.ForeignKey(
+        "accounts.Team",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="asset_deployments",
+    )
+    location = models.CharField(
+        max_length=128,
+        blank=True,
+        help_text=_("Human readable deployment location (site, depot, project)."),
+    )
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ("-started_at", "-pk")
+        verbose_name = _("Deployment entry")
+        verbose_name_plural = _("Deployment entries")
+        indexes = [
+            models.Index(fields=["base_object", "started_at"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return "{} – {}".format(self.get_status_display(), self.location or _("Unknown"))
+
+    @property
+    def is_active(self):
+        return self.ended_at is None
+
+
+class TelemetryReading(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    base_object = models.ForeignKey(
+        BaseObject,
+        related_name="telemetry_readings",
+        on_delete=models.CASCADE,
+    )
+    source = models.CharField(
+        max_length=64,
+        help_text=_("Origin of the reading (device, system, integration)."),
+    )
+    metric = models.CharField(
+        max_length=64,
+        help_text=_("Name of the metric, e.g. fuel_level, temperature, altitude."),
+    )
+    unit = models.CharField(max_length=32, blank=True)
+    value_numeric = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    value_text = models.CharField(max_length=256, blank=True)
+    captured_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Timestamp when the measurement was captured on the device."),
+    )
+    ingested_at = models.DateTimeField(auto_now_add=True)
+    raw_payload = models.JSONField(blank=True, default=dict)
+
+    class Meta:
+        ordering = ("-captured_at", "-ingested_at")
+        verbose_name = _("Telemetry reading")
+        verbose_name_plural = _("Telemetry readings")
+        indexes = [
+            models.Index(fields=["base_object", "metric", "captured_at"]),
+            models.Index(fields=["metric"]),
+        ]
+
+    def __str__(self):
+        return "{} – {}".format(self.metric, self.value_numeric or self.value_text or "-")
+
+    def clean(self):
+        if self.value_numeric is None and not self.value_text:
+            raise ValidationError(
+                _("Provide either a numeric value or a textual value for telemetry readings.")
+            )

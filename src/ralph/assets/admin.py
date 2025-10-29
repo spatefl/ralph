@@ -12,6 +12,9 @@ from ralph.assets.models.assets import (
     AssetHolder,
     AssetModel,
     MaintenanceRecord,
+    ComplianceRecord,
+    DeploymentEntry,
+    TelemetryReading,
     BudgetInfo,
     BusinessSegment,
     Category,
@@ -247,6 +250,160 @@ class MaintenanceRecordInline(RalphTabularInline):
         return instance.get_status_display()
 
     status_display.short_description = _("Status")
+
+
+@register(ComplianceRecord)
+class ComplianceRecordAdmin(RalphAdmin):
+    list_display = (
+        "base_object",
+        "record_type_display",
+        "title",
+        "status_display",
+        "performed_on",
+        "expires_on",
+    )
+    list_filter = ("record_type", "status", "expires_on")
+    search_fields = (
+        "base_object__hostname",
+        "base_object__barcode",
+        "title",
+        "reference",
+        "description",
+    )
+    raw_id_fields = ("base_object",)
+    readonly_fields = ("created", "modified")
+
+    def record_type_display(self, instance):
+        return instance.get_record_type_display()
+
+    record_type_display.short_description = _("Type")
+
+    def status_display(self, instance):
+        return instance.get_status_display()
+
+    status_display.short_description = _("Status")
+
+
+class ComplianceRecordInline(RalphTabularInline):
+    model = ComplianceRecord
+    fk_name = "base_object"
+    extra = 0
+    fields = (
+        "record_type_display",
+        "title",
+        "status_display",
+        "performed_on",
+        "expires_on",
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def record_type_display(self, instance):
+        return instance.get_record_type_display()
+
+    record_type_display.short_description = _("Type")
+
+    def status_display(self, instance):
+        return instance.get_status_display()
+
+    status_display.short_description = _("Status")
+
+
+@register(DeploymentEntry)
+class DeploymentEntryAdmin(RalphAdmin):
+    list_display = (
+        "base_object",
+        "status_display",
+        "assigned_to_user",
+        "assigned_to_team",
+        "location",
+        "started_at",
+        "ended_at",
+    )
+    list_filter = ("status", "assigned_to_team")
+    search_fields = (
+        "base_object__hostname",
+        "base_object__barcode",
+        "location",
+        "notes",
+    )
+    raw_id_fields = ("base_object", "assigned_to_user", "assigned_to_team")
+    readonly_fields = ("created", "modified")
+
+    def status_display(self, instance):
+        return instance.get_status_display()
+
+    status_display.short_description = _("Status")
+
+
+class DeploymentEntryInline(RalphTabularInline):
+    model = DeploymentEntry
+    fk_name = "base_object"
+    extra = 0
+    fields = (
+        "status_display",
+        "assigned_to_user",
+        "assigned_to_team",
+        "location",
+        "started_at",
+        "ended_at",
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def status_display(self, instance):
+        return instance.get_status_display()
+
+    status_display.short_description = _("Status")
+
+
+@register(TelemetryReading)
+class TelemetryReadingAdmin(RalphAdmin):
+    list_display = (
+        "base_object",
+        "source",
+        "metric",
+        "value_numeric",
+        "value_text",
+        "unit",
+        "captured_at",
+        "ingested_at",
+    )
+    list_filter = ("source", "metric")
+    search_fields = (
+        "base_object__hostname",
+        "base_object__barcode",
+        "metric",
+        "value_text",
+    )
+    raw_id_fields = ("base_object",)
+    readonly_fields = ("ingested_at", "created", "modified")
+
+
+class TelemetryReadingInline(RalphTabularInline):
+    model = TelemetryReading
+    fk_name = "base_object"
+    extra = 0
+    fields = (
+        "source",
+        "metric",
+        "value_numeric",
+        "value_text",
+        "unit",
+        "captured_at",
+        "ingested_at",
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 @register(ManufacturerKind)

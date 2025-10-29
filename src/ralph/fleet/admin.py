@@ -6,10 +6,16 @@ from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
+from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.admin.sites import ralph_site
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
-from ralph.assets.admin import MaintenanceRecordInline
+from ralph.assets.admin import (
+    MaintenanceRecordInline,
+    ComplianceRecordInline,
+    DeploymentEntryInline,
+    TelemetryReadingInline,
+)
 from ralph.fleet.models import (
     FLEET_GROUP_MAP,
     FleetAsset,
@@ -47,6 +53,49 @@ class FleetAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
         service_env_field = self.fields.get("service_env")
         if service_env_field:
             service_env_field.required = False
+
+
+class FleetOperationsView(RalphDetailViewAdmin):
+    icon = "cogs"
+    name = "operations"
+    label = _("Operations")
+    url_name = "operations"
+    inlines = [MaintenanceRecordInline, DeploymentEntryInline]
+    summary_fields = [
+        "status",
+        "assigned_location",
+        "user",
+        "odometer_km",
+        "next_service_date",
+        "next_service_odometer",
+    ]
+
+
+class FleetComplianceView(RalphDetailViewAdmin):
+    icon = "shield"
+    name = "compliance"
+    label = _("Compliance")
+    url_name = "compliance"
+    inlines = [ComplianceRecordInline]
+    summary_fields = [
+        "registration_expiry",
+        "inspection_due_date",
+        "insurance_expiry",
+    ]
+
+
+class FleetDataView(RalphDetailViewAdmin):
+    icon = "tachometer"
+    name = "data"
+    label = _("Telemetry")
+    url_name = "telemetry"
+    inlines = [TelemetryReadingInline]
+    summary_fields = [
+        "odometer_km",
+        "hours_used",
+        "fuel_type",
+        "last_service_date",
+    ]
 
 
 class FleetAssetAdmin(
@@ -105,6 +154,15 @@ class FleetAssetAdmin(
         "budget_info",
         "property_of",
     )
+    change_views = [
+        FleetOperationsView,
+        FleetComplianceView,
+        FleetDataView,
+    ]
+
+    def __init__(self, *args, **kwargs):
+        self.change_views = list(self.change_views or [])
+        super().__init__(*args, **kwargs)
     fieldsets = (
         (
             _("Identification"),
@@ -168,6 +226,7 @@ class FleetAssetAdmin(
 
 class FleetAssetGroupAdmin(FleetAssetAdmin):
     functional_group_filter = None
+    change_views = []
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)

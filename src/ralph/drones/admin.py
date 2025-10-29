@@ -6,10 +6,16 @@ from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
+from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.admin.sites import ralph_site
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
-from ralph.assets.admin import MaintenanceRecordInline
+from ralph.assets.admin import (
+    MaintenanceRecordInline,
+    ComplianceRecordInline,
+    DeploymentEntryInline,
+    TelemetryReadingInline,
+)
 from ralph.drones.forms import (
     DroneAssignmentForm,
     DroneCertificationForm,
@@ -45,6 +51,49 @@ class DroneAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
         service_env_field = self.fields.get("service_env")
         if service_env_field:
             service_env_field.required = False
+
+
+class DroneOperationsView(RalphDetailViewAdmin):
+    icon = "plane"
+    name = "operations"
+    label = _("Operations")
+    url_name = "operations"
+    inlines = [MaintenanceRecordInline, DeploymentEntryInline]
+    summary_fields = [
+        "status",
+        "current_mission",
+        "total_flight_hours",
+        "flight_count",
+        "next_maintenance_date",
+        "next_maintenance_flight_hours",
+    ]
+
+
+class DroneComplianceView(RalphDetailViewAdmin):
+    icon = "shield"
+    name = "compliance"
+    label = _("Compliance")
+    url_name = "compliance"
+    inlines = [ComplianceRecordInline]
+    summary_fields = [
+        "last_service_date",
+        "next_maintenance_date",
+        "mission_profile",
+    ]
+
+
+class DroneDataView(RalphDetailViewAdmin):
+    icon = "line-chart"
+    name = "data"
+    label = _("Telemetry")
+    url_name = "telemetry"
+    inlines = [TelemetryReadingInline]
+    summary_fields = [
+        "battery_capacity_mah",
+        "battery_health_percent",
+        "flight_time_limit_minutes",
+        "last_status_change",
+    ]
 
 
 class DroneAssetAdmin(
@@ -107,6 +156,15 @@ class DroneAssetAdmin(
         "budget_info",
         "property_of",
     )
+    change_views = [
+        DroneOperationsView,
+        DroneComplianceView,
+        DroneDataView,
+    ]
+
+    def __init__(self, *args, **kwargs):
+        self.change_views = list(self.change_views or [])
+        super().__init__(*args, **kwargs)
     fieldsets = (
         (
             _("Identification"),
@@ -597,22 +655,27 @@ class DroneStatusLogAdmin(RalphAdmin):
 
 class SurveyDroneAssetAdmin(DroneAssetMissionAdmin):
     mission_profile_filter = DroneMissionProfile.SURVEY
+    change_views = []
 
 
 class SurveillanceDroneAssetAdmin(DroneAssetMissionAdmin):
     mission_profile_filter = DroneMissionProfile.SURVEILLANCE
+    change_views = []
 
 
 class DeliveryDroneAssetAdmin(DroneAssetMissionAdmin):
     mission_profile_filter = DroneMissionProfile.DELIVERY
+    change_views = []
 
 
 class InspectionDroneAssetAdmin(DroneAssetMissionAdmin):
     mission_profile_filter = DroneMissionProfile.INSPECTION
+    change_views = []
 
 
 class TrainingDroneAssetAdmin(DroneAssetMissionAdmin):
     mission_profile_filter = DroneMissionProfile.TRAINING
+    change_views = []
 
 
 def _register(model, admin_class):

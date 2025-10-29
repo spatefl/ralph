@@ -1,3 +1,6 @@
+from datetime import date as datetime_date
+from operator import attrgetter
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import fields, serializers
@@ -20,14 +23,18 @@ from ralph.assets.models import (
     BudgetInfo,
     BusinessSegment,
     Category,
+    ComplianceRecord,
     ConfigurationClass,
     ConfigurationModule,
+    DeploymentEntry,
     Environment,
     Manufacturer,
     ManufacturerKind,
+    MaintenanceRecord,
     ProfitCenter,
     Service,
     ServiceEnvironment,
+    TelemetryReading,
 )
 from ralph.assets.models.components import (
     Disk,
@@ -74,6 +81,12 @@ class ProfitCenterSerializer(RalphAPISerializer):
         model = ProfitCenter
         fields = ("id", "name", "description", "url")
         depth = 1
+
+
+class SimpleTeamSerializer(RalphAPISerializer):
+    class Meta:
+        model = Team
+        fields = ("id", "name", "url")
 
 
 class EnvironmentSerializer(RalphAPISerializer):
@@ -437,6 +450,170 @@ class DiskSerializer(DiskSimpleSerializer):
         model = Disk
         exclude = ("model",)
 
+
+class MaintenanceRecordSerializer(RalphAPISerializer):
+    record_type_display = serializers.CharField(
+        source="get_record_type_display", read_only=True
+    )
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    reported_by = SimpleRalphUserSerializer(read_only=True)
+
+    class Meta:
+        model = MaintenanceRecord
+        fields = (
+            "id",
+            "record_type",
+            "record_type_display",
+            "status",
+            "status_display",
+            "title",
+            "description",
+            "resolution",
+            "opened_at",
+            "expected_completion",
+            "closed_at",
+            "cost",
+            "out_of_service",
+            "reported_by",
+            "performed_by",
+        )
+
+
+class ComplianceRecordSerializer(RalphAPISerializer):
+    record_type_display = serializers.CharField(
+        source="get_record_type_display", read_only=True
+    )
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = ComplianceRecord
+        fields = (
+            "id",
+            "record_type",
+            "record_type_display",
+            "status",
+            "status_display",
+            "title",
+            "description",
+            "performed_on",
+            "expires_on",
+            "performed_by",
+            "reference",
+            "document_url",
+            "notes",
+        )
+
+
+class DeploymentEntrySerializer(RalphAPISerializer):
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    assigned_to_user = SimpleRalphUserSerializer(read_only=True)
+    assigned_to_team = SimpleTeamSerializer(read_only=True)
+
+    class Meta:
+        model = DeploymentEntry
+        fields = (
+            "id",
+            "status",
+            "status_display",
+            "assigned_to_user",
+            "assigned_to_team",
+            "location",
+            "latitude",
+            "longitude",
+            "started_at",
+            "ended_at",
+            "notes",
+        )
+
+
+class TelemetryReadingSerializer(RalphAPISerializer):
+    class Meta:
+        model = TelemetryReading
+        fields = (
+            "id",
+            "source",
+            "metric",
+            "unit",
+            "value_numeric",
+            "value_text",
+            "captured_at",
+            "ingested_at",
+        )
+
+
+class AssetLifecycleSerializerMixin(RalphAPISerializer):
+    maintenance_records = serializers.SerializerMethodField()
+    compliance_records = serializers.SerializerMethodField()
+    deployment_entries = serializers.SerializerMethodField()
+    telemetry_readings = serializers.SerializerMethodField()
+
+    maintenance_records_limit = 10
+    compliance_records_limit = 10
+    deployment_entries_limit = 10
+    telemetry_readings_limit = 25
+
+    def _get_related(self, obj, attr):
+        cache = getattr(obj, "_prefetched_objects_cache", {})
+        related = cache.get(attr)
+        if related is None:
+            related = getattr(obj, attr).all()
+        return related
+
+    def _order_queryset(self, items, order_attr, reverse=True):
+        if hasattr(items, "order_by"):
+            prefix = "-" if reverse else ""
+            return items.order_by(f"{prefix}{order_attr}")
+        return sorted(items, key=attrgetter(order_attr), reverse=reverse)
+
+    def get_maintenance_records(self, obj):
+        records = self._order_queryset(
+            self._get_related(obj, "maintenance_records"),
+            "opened_at",
+            reverse=True,
+        )
+        if self.maintenance_records_limit is not None:
+            records = records[: self.maintenance_records_limit]
+        return MaintenanceRecordSerializer(records, many=True, context=self.context).data
+
+    def get_compliance_records(self, obj):
+        records = self._get_related(obj, "compliance_records")
+        if hasattr(records, "order_by"):
+            records = records.order_by("expires_on", "title")
+        else:
+            records = sorted(
+                records,
+                key=lambda record: (
+                    record.expires_on or datetime_date.max,
+                    record.title or "",
+                ),
+            )
+        if self.compliance_records_limit is not None:
+            records = records[: self.compliance_records_limit]
+        return ComplianceRecordSerializer(records, many=True, context=self.context).data
+
+    def get_deployment_entries(self, obj):
+        entries = self._order_queryset(
+            self._get_related(obj, "deployment_entries"),
+            "started_at",
+            reverse=True,
+        )
+        if self.deployment_entries_limit is not None:
+            entries = entries[: self.deployment_entries_limit]
+        return DeploymentEntrySerializer(entries, many=True, context=self.context).data
+
+    def get_telemetry_readings(self, obj):
+        readings = self._get_related(obj, "telemetry_readings")
+        if hasattr(readings, "order_by"):
+            readings = readings.order_by("-captured_at", "-ingested_at")
+        else:
+            readings = sorted(
+                readings,
+                key=lambda reading: reading.captured_at or reading.ingested_at,
+                reverse=True,
+            )
+        if self.telemetry_readings_limit is not None:
+            readings = readings[: self.telemetry_readings_limit]
+        return TelemetryReadingSerializer(readings, many=True, context=self.context).data
 
 # used by DataCenterAsset and VirtualServer serializers
 class NetworkComponentSerializerMixin(OwnersFromServiceEnvSerializerMixin):

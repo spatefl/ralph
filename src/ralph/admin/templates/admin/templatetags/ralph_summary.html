@@ -1,6 +1,6 @@
 {% load i18n %}
 
-<div class="categories">
+      <div class="categories">
   {% for result in results %}
     <div class="category {{ result.class }}">
         <a href="{{ result.url }}">
@@ -8,6 +8,15 @@
               <div class="name">{{ result.label | title }}</div>
               <div class="value">{{ result.count }}</div>
               <i class="fa icon" aria-hidden="true"></i>
+              {% if result.meta %}
+                <div class="meta">
+                  {% for item in result.meta %}
+                    <span class="meta-item {% if item.class %}{{ item.class }}{% endif %}">
+                      {{ item.label }}: <strong>{{ item.value }}</strong>
+                    </span>
+                  {% endfor %}
+                </div>
+              {% endif %}
           </div>
         </a>
     </div>

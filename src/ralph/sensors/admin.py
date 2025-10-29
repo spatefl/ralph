@@ -6,10 +6,16 @@ from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
+from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.admin.sites import ralph_site
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
-from ralph.assets.admin import MaintenanceRecordInline
+from ralph.assets.admin import (
+    MaintenanceRecordInline,
+    ComplianceRecordInline,
+    DeploymentEntryInline,
+    TelemetryReadingInline,
+)
 from ralph.sensors.forms import (
     SensorAssignmentForm,
     SensorFaultStatusForm,
@@ -45,6 +51,48 @@ class SensorAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
         service_env_field = self.fields.get("service_env")
         if service_env_field:
             service_env_field.required = False
+
+
+class SensorOperationsView(RalphDetailViewAdmin):
+    icon = "plug"
+    name = "operations"
+    label = _("Operations")
+    url_name = "operations"
+    inlines = [MaintenanceRecordInline, DeploymentEntryInline]
+    summary_fields = [
+        "status",
+        "location_description",
+        "last_online_at",
+        "battery_level_percent",
+        "next_calibration_due",
+    ]
+
+
+class SensorComplianceView(RalphDetailViewAdmin):
+    icon = "shield"
+    name = "compliance"
+    label = _("Compliance")
+    url_name = "compliance"
+    inlines = [ComplianceRecordInline]
+    summary_fields = [
+        "last_calibrated",
+        "next_calibration_due",
+        "calibration_interval_days",
+    ]
+
+
+class SensorDataView(RalphDetailViewAdmin):
+    icon = "area-chart"
+    name = "data"
+    label = _("Telemetry")
+    url_name = "telemetry"
+    inlines = [TelemetryReadingInline]
+    summary_fields = [
+        "sensor_type",
+        "external_identifier",
+        "battery_level_percent",
+        "last_online_at",
+    ]
 
 
 class SensorAssetAdmin(
@@ -177,6 +225,15 @@ class SensorAssetAdmin(
             },
         ),
     )
+    change_views = [
+        SensorOperationsView,
+        SensorComplianceView,
+        SensorDataView,
+    ]
+
+    def __init__(self, *args, **kwargs):
+        self.change_views = list(self.change_views or [])
+        super().__init__(*args, **kwargs)
 
 
 class SensorAssetCategoryAdmin(SensorAssetAdmin):
@@ -574,22 +631,27 @@ class SensorStatusLogAdmin(RalphAdmin):
 
 class EnvironmentalSensorAssetAdmin(SensorAssetCategoryAdmin):
     sensor_category_filter = SensorCategory.environmental.id
+    change_views = []
 
 
 class SecuritySensorAssetAdmin(SensorAssetCategoryAdmin):
     sensor_category_filter = SensorCategory.security.id
+    change_views = []
 
 
 class InfrastructureSensorAssetAdmin(SensorAssetCategoryAdmin):
     sensor_category_filter = SensorCategory.infrastructure.id
+    change_views = []
 
 
 class LogisticsSensorAssetAdmin(SensorAssetCategoryAdmin):
     sensor_category_filter = SensorCategory.logistics.id
+    change_views = []
 
 
 class WearableSensorAssetAdmin(SensorAssetCategoryAdmin):
     sensor_category_filter = SensorCategory.wearable.id
+    change_views = []
 
 
 def _register(model, admin_class):
