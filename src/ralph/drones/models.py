@@ -73,6 +73,9 @@ class DroneMissionProfile(models.TextChoices):
 
 class DroneAsset(Regionalizable, Asset):
     _allow_in_dashboard = True
+    MAINTENANCE_APPROVAL_THRESHOLD = Decimal("2000.00")
+    APPROVE_MAINTENANCE_PERMISSION = "drones.approve_drone_maintenance"
+    APPROVE_RETIREMENT_PERMISSION = "drones.approve_drone_retirement"
 
     identifier = NullableCharField(
         max_length=64,
@@ -88,6 +91,11 @@ class DroneAsset(Regionalizable, Asset):
         unique=True,
         verbose_name=_("serial number"),
     )
+    manufacturer = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("manufacturer"),
+    )
     model_name = models.CharField(
         max_length=128,
         blank=True,
@@ -98,6 +106,33 @@ class DroneAsset(Regionalizable, Asset):
         choices=DroneType.choices,
         default=DroneType.QUADCOPTER,
         verbose_name=_("type"),
+    )
+    registration_id = NullableCharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        verbose_name=_("registration ID"),
+    )
+    registration_authority = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("registration authority"),
+    )
+    registration_expires_on = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("registration expiry"),
+    )
+    airworthiness_certificate_id = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("airworthiness certificate ID"),
+    )
+    airworthiness_expires_on = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("airworthiness expiry"),
     )
     mission_profile = models.CharField(
         max_length=32,
@@ -115,6 +150,16 @@ class DroneAsset(Regionalizable, Asset):
         blank=True,
         verbose_name=_("last firmware update"),
     )
+    communication_link_type = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("communication link type"),
+    )
+    manufacture_year = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("manufacture year"),
+    )
     battery_capacity_mah = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -128,10 +173,30 @@ class DroneAsset(Regionalizable, Asset):
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         verbose_name=_("battery health (%)"),
     )
+    battery_low_threshold_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("low battery threshold (%)"),
+    )
     flight_time_limit_minutes = models.PositiveIntegerField(
         null=True,
         blank=True,
         verbose_name=_("flight time limit (minutes)"),
+    )
+    max_range_km = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("maximum range (km)"),
+    )
+    max_endurance_minutes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("maximum endurance (minutes)"),
     )
     total_flight_hours = models.DecimalField(
         max_digits=7,
@@ -147,6 +212,65 @@ class DroneAsset(Regionalizable, Asset):
         max_length=128,
         blank=True,
         verbose_name=_("current mission"),
+    )
+    mission_payload_description = models.CharField(
+        max_length=256,
+        blank=True,
+        verbose_name=_("payload description"),
+    )
+    max_payload_weight_kg = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("maximum payload (kg)"),
+    )
+    airframe_weight_kg = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("airframe weight (kg)"),
+    )
+    battery_cycle_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("battery cycle count"),
+    )
+    payload_mounting = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("payload mount"),
+    )
+    payload_power_requirements = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("payload power requirements"),
+    )
+    operator_certificate_number = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("operator certificate number"),
+    )
+    pilot_license_required = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("pilot license requirement"),
+    )
+    insurance_policy_number = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("insurance policy number"),
+    )
+    insurance_provider = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("insurance provider"),
+    )
+    insurance_expiry = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("insurance expiry"),
     )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -198,6 +322,16 @@ class DroneAsset(Regionalizable, Asset):
         blank=True,
         verbose_name=_("last known altitude (m)"),
     )
+    home_location_description = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("home location"),
+    )
+    failsafe_behavior = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("failsafe behavior"),
+    )
     status = TransitionField(
         default=DroneAssetStatus.new.id,
         choices=DroneAssetStatus(),
@@ -232,10 +366,44 @@ class DroneAsset(Regionalizable, Asset):
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         verbose_name=_("battery health threshold (%)"),
     )
+    last_inspection_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("last inspection date"),
+    )
+    next_inspection_due = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("next inspection due"),
+    )
+
+    @staticmethod
+    def _requires_permission(requester, permission_code):
+        return requester is not None and not requester.has_perm(permission_code)
+
+    def ensure_approval_ticket(self, action, *, requester=None, description="", extra=None):
+        record, created = MaintenanceRecord.ensure_approval_record(
+            base_object=self,
+            action=action,
+            description=description,
+            requester=requester,
+            extra=extra,
+        )
+        return record, created
 
     class Meta:
         verbose_name = _("Drone asset")
         verbose_name_plural = _("Drone assets")
+        permissions = [
+            (
+                "approve_drone_maintenance",
+                _("Can approve drone maintenance"),
+            ),
+            (
+                "approve_drone_retirement",
+                _("Can approve drone retirement"),
+            ),
+        ]
 
     def __str__(self):
         identifier = self.identifier or self.hostname or self.barcode or "-"
@@ -406,13 +574,30 @@ class DroneAsset(Regionalizable, Asset):
                     required=False,
                 )
             },
+            "estimated_cost": {
+                "field": forms.DecimalField(
+                    label=_("Estimated cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
+            "requires_approval": {
+                "field": forms.BooleanField(
+                    label=_("Flag for manager approval"),
+                    required=False,
+                )
+            },
         },
     )
     def start_drone_maintenance(cls, instances, **kwargs):
         requester = kwargs.get("requester")
         expected = kwargs.get("expected_completion")
         note = kwargs.get("maintenance_note")
-        performed_by = kwargs.get("performed_by")
+        performed_by = kwargs.get("performed_by") or ""
+        estimated_cost = kwargs.get("estimated_cost")
+        approval_flag = kwargs.get("requires_approval") or False
         for instance in instances:
             history = _history_entry(kwargs, instance)
             if expected:
@@ -420,20 +605,61 @@ class DroneAsset(Regionalizable, Asset):
                 instance.next_maintenance_date = expected
             if note:
                 history[_("Note")] = note
+            if performed_by:
+                history[_("Performed by")] = performed_by
+            if estimated_cost is not None:
+                history[_("Estimated cost")] = float(estimated_cost)
             instance.status = DroneAssetStatus.under_maintenance.id
             instance.last_status_change = timezone.now().date()
             instance.current_mission = ""
+            approval_required = approval_flag
+            if (
+                estimated_cost is not None
+                and estimated_cost >= cls.MAINTENANCE_APPROVAL_THRESHOLD
+            ):
+                approval_required = True
+            needs_manager = approval_required and cls._requires_permission(
+                requester, cls.APPROVE_MAINTENANCE_PERMISSION
+            )
+            record_status = (
+                MaintenanceRecordStatus.open.id
+                if needs_manager
+                else MaintenanceRecordStatus.in_progress.id
+            )
+            record_extra = {}
+            if estimated_cost is not None:
+                record_extra["estimated_cost"] = float(estimated_cost)
+            record_extra["approval_required"] = bool(needs_manager)
+            if performed_by:
+                record_extra["performed_by"] = performed_by
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.maintenance.id,
-                status=MaintenanceRecordStatus.in_progress.id,
+                status=record_status,
                 description=note or "",
                 expected_completion=expected,
                 out_of_service=True,
                 reported_by=requester,
                 performed_by=performed_by,
+                extra_data=record_extra,
             )
             history[_("Maintenance record")] = str(record.pk)
+            if needs_manager:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "maintenance",
+                        "record_id": record.pk,
+                        "estimated_cost": float(estimated_cost)
+                        if estimated_cost is not None
+                        else None,
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "start_drone_maintenance",
+                    },
+                )
             notify_asset_event(
                 instance,
                 AssetEventType.MAINTENANCE_STARTED,
@@ -441,6 +667,10 @@ class DroneAsset(Regionalizable, Asset):
                     "record_id": record.pk,
                     "expected_completion": expected.isoformat() if expected else None,
                     "note": note or "",
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
+                    "approval_required": bool(needs_manager),
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
@@ -511,6 +741,15 @@ class DroneAsset(Regionalizable, Asset):
                     required=False,
                 )
             },
+            "maintenance_cost": {
+                "field": forms.DecimalField(
+                    label=_("Actual cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
         },
     )
     def complete_drone_maintenance(cls, instances, **kwargs):
@@ -523,6 +762,7 @@ class DroneAsset(Regionalizable, Asset):
         firmware_update = kwargs.get("last_firmware_update")
         summary = kwargs.get("maintenance_summary")
         performed_by = kwargs.get("performed_by")
+        cost = kwargs.get("maintenance_cost")
         for instance in instances:
             history = _history_entry(kwargs, instance)
             history[_("Completed on")] = completed_on
@@ -544,6 +784,10 @@ class DroneAsset(Regionalizable, Asset):
                 history[_("Firmware updated on")] = firmware_update
             if summary:
                 history[_("Summary")] = summary
+            if cost is not None:
+                history[_("Cost")] = float(cost)
+            if performed_by:
+                history[_("Performed by")] = performed_by
             instance.status = DroneAssetStatus.active.id
             instance.last_status_change = timezone.now().date()
             extra = {
@@ -559,12 +803,16 @@ class DroneAsset(Regionalizable, Asset):
                 else None,
                 "firmware_version": firmware_version,
             }
+            if cost is not None:
+                extra["actual_cost"] = float(cost)
             record = MaintenanceRecord.close_latest(
                 instance,
                 record_type=MaintenanceRecordType.maintenance.id,
                 resolution=summary,
                 extra_data=extra,
-                performed_by=performed_by or (requester.get_full_name() if requester else None),
+                cost=cost,
+                performed_by=performed_by
+                or (requester.get_full_name() if requester else None),
             )
             notify_asset_event(
                 instance,
@@ -583,6 +831,7 @@ class DroneAsset(Regionalizable, Asset):
                     "total_flight_hours": float(hours_after)
                     if hours_after is not None
                     else None,
+                    "cost": float(cost) if cost is not None else None,
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
@@ -602,18 +851,41 @@ class DroneAsset(Regionalizable, Asset):
                     widget=forms.Textarea(attrs={"rows": 3}),
                 )
             },
+            "estimated_cost": {
+                "field": forms.DecimalField(
+                    label=_("Estimated repair cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
         },
     )
     def ground_drone_asset(cls, instances, **kwargs):
         reason = kwargs.get("grounding_reason")
         requester = kwargs.get("requester")
+        estimated_cost = kwargs.get("estimated_cost")
         for instance in instances:
             history = _history_entry(kwargs, instance)
             if reason:
                 history[_("Reason")] = reason
+            if estimated_cost is not None:
+                history[_("Estimated cost")] = float(estimated_cost)
             instance.status = DroneAssetStatus.grounded.id
             instance.last_status_change = timezone.now().date()
             instance.current_mission = ""
+            record_extra = {}
+            if estimated_cost is not None:
+                record_extra["estimated_cost"] = float(estimated_cost)
+            needs_manager = (
+                estimated_cost is not None
+                and estimated_cost >= cls.MAINTENANCE_APPROVAL_THRESHOLD
+                and cls._requires_permission(
+                    requester, cls.APPROVE_MAINTENANCE_PERMISSION
+                )
+            )
+            record_extra["approval_required"] = bool(needs_manager)
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.repair.id,
@@ -621,14 +893,32 @@ class DroneAsset(Regionalizable, Asset):
                 description=reason or "",
                 out_of_service=True,
                 reported_by=requester,
+                extra_data=record_extra,
             )
             history[_("Maintenance record")] = str(record.pk)
+            if needs_manager:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "ground",
+                        "record_id": record.pk,
+                        "estimated_cost": float(estimated_cost),
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "ground_drone_asset",
+                    },
+                )
             notify_asset_event(
                 instance,
                 AssetEventType.INCIDENT_DAMAGE,
                 payload={
                     "record_id": record.pk,
                     "reason": reason or "",
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
                 },
                 severity="warning",
                 metadata={
@@ -708,12 +998,31 @@ class DroneAsset(Regionalizable, Asset):
             history[_("Retired on")] = retired_on
             if reason:
                 history[_("Reason")] = reason
+            approval_needed = cls._requires_permission(
+                requester, cls.APPROVE_RETIREMENT_PERMISSION
+            )
+            approval_record = None
+            if approval_needed:
+                approval_record, _ = instance.ensure_approval_ticket(
+                    action="retire",
+                    requester=requester,
+                    description=reason or _("Retirement approval requested"),
+                    extra={"requested_state": DroneAssetStatus.retired.id},
+                )
+                history[_("Approval requested")] = _("Pending managerial approval")
             instance.status = DroneAssetStatus.retired.id
             instance.last_status_change = retired_on
             instance.user = None
             instance.assigned_team = None
             instance.assigned_location = ""
             instance.current_mission = ""
+            if not approval_needed:
+                MaintenanceRecord.close_open_records(
+                    instance,
+                    record_type=MaintenanceRecordType.approval.id,
+                    resolution=reason or _("Retirement approved"),
+                    performed_by=requester,
+                )
             MaintenanceRecord.close_open_records(
                 instance,
                 resolution=reason or _("Drone retired"),
@@ -725,12 +1034,28 @@ class DroneAsset(Regionalizable, Asset):
                 payload={
                     "retired_on": retired_on.isoformat(),
                     "reason": reason or "",
+                    "approval_required": approval_needed,
+                    "approval_record_id": approval_record.pk if approval_record else None,
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
                     "transition": "retire_drone_asset",
                 },
             )
+            if approval_needed and approval_record:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "retire",
+                        "record_id": approval_record.pk,
+                        "reason": reason or "",
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "retire_drone_asset",
+                    },
+                )
 
 
 class DroneAssetMissionManager(models.Manager):

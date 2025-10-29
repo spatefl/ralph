@@ -3,6 +3,7 @@ from operator import attrgetter
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import fields, serializers
 
 from ralph.accounts.api_simple import SimpleRalphUserSerializer
@@ -31,10 +32,13 @@ from ralph.assets.models import (
     Manufacturer,
     ManufacturerKind,
     MaintenanceRecord,
+    MaintenanceRecordStatus,
+    MaintenanceRecordType,
     ProfitCenter,
     Service,
     ServiceEnvironment,
     TelemetryReading,
+    ComplianceRecordStatus,
 )
 from ralph.assets.models.components import (
     Disk,
@@ -546,6 +550,8 @@ class AssetLifecycleSerializerMixin(RalphAPISerializer):
     compliance_records = serializers.SerializerMethodField()
     deployment_entries = serializers.SerializerMethodField()
     telemetry_readings = serializers.SerializerMethodField()
+    maintenance_summary = serializers.SerializerMethodField()
+    compliance_summary = serializers.SerializerMethodField()
 
     maintenance_records_limit = 10
     compliance_records_limit = 10
@@ -614,6 +620,97 @@ class AssetLifecycleSerializerMixin(RalphAPISerializer):
         if self.telemetry_readings_limit is not None:
             readings = readings[: self.telemetry_readings_limit]
         return TelemetryReadingSerializer(readings, many=True, context=self.context).data
+
+    def get_maintenance_summary(self, obj):
+        open_statuses = {
+            MaintenanceRecordStatus.open.id,
+            MaintenanceRecordStatus.in_progress.id,
+        }
+        records = self._get_related(obj, "maintenance_records")
+        if hasattr(records, "filter"):
+            open_records = records.filter(status__in=open_statuses)
+        else:
+            open_records = [r for r in records if r.status in open_statuses]
+        if hasattr(open_records, "filter"):
+            overdue_count = open_records.filter(
+                expected_completion__isnull=False,
+                expected_completion__lt=timezone.now().date(),
+            ).count()
+            approval_required = open_records.filter(
+                record_type=MaintenanceRecordType.approval.id
+            ).exists()
+            open_count = open_records.count()
+        else:
+            overdue_count = sum(
+                1
+                for r in open_records
+                if r.expected_completion
+                and r.expected_completion < timezone.now().date()
+            )
+            approval_required = any(
+                r.record_type == MaintenanceRecordType.approval.id
+                for r in open_records
+            )
+            open_count = len(open_records)
+        summary = {
+            "open_count": open_count,
+            "overdue_count": overdue_count,
+            "approval_required": approval_required,
+            "alerts": [],
+        }
+        alerts_func = getattr(obj, "maintenance_alerts", None)
+        if callable(alerts_func):
+            summary["alerts"] = alerts_func()
+        for attr in [
+            "next_service_date",
+            "next_service_hours",
+            "next_service_odometer",
+            "next_maintenance_date",
+            "next_maintenance_flight_hours",
+        ]:
+            value = getattr(obj, attr, None)
+            if value is None:
+                continue
+            if hasattr(value, "isoformat"):
+                summary[attr] = value.isoformat()
+            else:
+                summary[attr] = value
+        return summary
+
+    def get_compliance_summary(self, obj):
+        records = self._get_related(obj, "compliance_records")
+        if hasattr(records, "filter"):
+            due_soon = records.filter(status=ComplianceRecordStatus.due_soon.id).count()
+            overdue = records.filter(status=ComplianceRecordStatus.overdue.id).count()
+            next_expiry_obj = (
+                records.exclude(expires_on__isnull=True)
+                .order_by("expires_on")
+                .first()
+            )
+        else:
+            due_soon = sum(
+                1 for r in records if r.status == ComplianceRecordStatus.due_soon.id
+            )
+            overdue = sum(
+                1 for r in records if r.status == ComplianceRecordStatus.overdue.id
+            )
+            next_expiry_obj = None
+            for r in records:
+                if not r.expires_on:
+                    continue
+                if (
+                    next_expiry_obj is None
+                    or r.expires_on < next_expiry_obj.expires_on
+                ):
+                    next_expiry_obj = r
+        summary = {
+            "due_soon_count": due_soon,
+            "overdue_count": overdue,
+            "next_expiry": next_expiry_obj.expires_on.isoformat()
+            if next_expiry_obj and next_expiry_obj.expires_on
+            else None,
+        }
+        return summary
 
 # used by DataCenterAsset and VirtualServer serializers
 class NetworkComponentSerializerMixin(OwnersFromServiceEnvSerializerMixin):

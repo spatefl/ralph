@@ -542,6 +542,7 @@ class MaintenanceRecordType(Choices):
     refuel = _("refuel")
     calibration = _("calibration")
     inspection = _("inspection")
+    approval = _("approval")
     other = _("other")
 
 
@@ -632,6 +633,7 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         base_object,
         record_type,
         *,
+        title="",
         status=None,
         description="",
         expected_completion=None,
@@ -645,6 +647,7 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
             base_object=base_object,
             record_type=record_type,
             status=status,
+            title=title[:128] if title else "",
             description=description or "",
             expected_completion=expected_completion,
             out_of_service=out_of_service,
@@ -722,6 +725,55 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
                 record.performed_by = performed_by
             record.save()
         return True
+
+    @classmethod
+    def ensure_approval_record(
+        cls,
+        base_object,
+        *,
+        action,
+        description="",
+        requester=None,
+        extra=None,
+    ):
+        filters = {
+            "base_object": base_object,
+            "record_type": MaintenanceRecordType.approval.id,
+            "status__in": [
+                MaintenanceRecordStatus.open.id,
+                MaintenanceRecordStatus.in_progress.id,
+            ],
+            "extra_data__approval__action": action,
+        }
+        record = (
+            cls.objects.filter(**filters)
+            .order_by("-opened_at", "-pk")
+            .first()
+        )
+        if record:
+            return record, False
+
+        extra_data = extra.copy() if extra else {}
+        approval_meta = {
+            "action": action,
+            "requested_at": timezone.now().isoformat(),
+        }
+        if requester is not None:
+            approval_meta["requested_by"] = requester.pk
+        if description:
+            approval_meta["description"] = description
+        extra_data["approval"] = approval_meta
+        record = cls.start_record(
+            base_object=base_object,
+            record_type=MaintenanceRecordType.approval.id,
+            status=MaintenanceRecordStatus.open.id,
+            title=_("Approval requested"),
+            description=description or "",
+            out_of_service=False,
+            reported_by=requester,
+            extra_data=extra_data,
+        )
+        return record, True
 
     def is_overdue(self):
         if self.status == MaintenanceRecordStatus.completed.id:

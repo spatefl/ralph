@@ -20,6 +20,7 @@ from ralph.assets.models.assets import (
     MaintenanceRecordStatus,
     MaintenanceRecordType,
 )
+from ralph.assets.models.base import BaseObject
 from ralph.lib.dj_choices import Choices
 from ralph.lib.lifecycle import LifecycleStatusMixin
 from ralph.lib.mixins.fields import NullableCharField
@@ -59,15 +60,33 @@ class SensorCategory(Choices):
 
 class SensorAsset(Regionalizable, Asset):
     _allow_in_dashboard = True
+    MAINTENANCE_APPROVAL_THRESHOLD = Decimal("1500.00")
+    APPROVE_MAINTENANCE_PERMISSION = "sensors.approve_sensor_maintenance"
+    APPROVE_RETIREMENT_PERMISSION = "sensors.approve_sensor_retirement"
 
     sensor_type = models.CharField(
         max_length=64,
         verbose_name=_("sensor type"),
     )
+    manufacturer = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("manufacturer"),
+    )
     model_name = models.CharField(
         max_length=128,
         blank=True,
         verbose_name=_("model"),
+    )
+    firmware_version = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("firmware version"),
+    )
+    hardware_revision = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("hardware revision"),
     )
     category = models.CharField(
         max_length=32,
@@ -110,6 +129,11 @@ class SensorAsset(Regionalizable, Asset):
         blank=True,
         verbose_name=_("location description"),
     )
+    installation_site = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("installation site reference"),
+    )
     installation_date = models.DateField(
         null=True,
         blank=True,
@@ -128,6 +152,16 @@ class SensorAsset(Regionalizable, Asset):
         null=True,
         blank=True,
         verbose_name=_("longitude"),
+    )
+    communication_protocol = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("communication protocol"),
+    )
+    power_source = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("power source"),
     )
     battery_level_percent = models.DecimalField(
         max_digits=5,
@@ -191,10 +225,57 @@ class SensorAsset(Regionalizable, Asset):
         blank=True,
         verbose_name=_("external feed reference"),
     )
+    measurement_unit = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("measurement unit"),
+    )
+    expected_update_interval_seconds = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("expected update interval (s)"),
+    )
+    parent_asset = models.ForeignKey(
+        BaseObject,
+        null=True,
+        blank=True,
+        related_name="attached_sensors",
+        on_delete=models.SET_NULL,
+        verbose_name=_("attached to asset"),
+    )
+    maintenance_contact = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("maintenance contact"),
+    )
+
+    @staticmethod
+    def _requires_permission(requester, permission_code):
+        return requester is not None and not requester.has_perm(permission_code)
+
+    def ensure_approval_ticket(self, action, *, requester=None, description="", extra=None):
+        record, created = MaintenanceRecord.ensure_approval_record(
+            base_object=self,
+            action=action,
+            description=description,
+            requester=requester,
+            extra=extra,
+        )
+        return record, created
 
     class Meta:
         verbose_name = _("Sensor asset")
         verbose_name_plural = _("Sensor assets")
+        permissions = [
+            (
+                "approve_sensor_maintenance",
+                _("Can approve sensor maintenance"),
+            ),
+            (
+                "approve_sensor_retirement",
+                _("Can approve sensor retirement"),
+            ),
+        ]
 
     def __str__(self):
         identifier = (
@@ -287,6 +368,15 @@ class SensorAsset(Regionalizable, Asset):
                     required=False,
                 )
             },
+            "maintenance_cost": {
+                "field": forms.DecimalField(
+                    label=_("Actual cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
         },
     )
     def activate_sensor_asset(cls, instances, **kwargs):
@@ -350,13 +440,30 @@ class SensorAsset(Regionalizable, Asset):
                     required=False,
                 )
             },
+            "estimated_cost": {
+                "field": forms.DecimalField(
+                    label=_("Estimated cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
+            "requires_approval": {
+                "field": forms.BooleanField(
+                    label=_("Flag for manager approval"),
+                    required=False,
+                )
+            },
         },
     )
     def start_sensor_maintenance(cls, instances, **kwargs):
         requester = kwargs.get("requester")
         expected = kwargs.get("expected_completion")
         note = kwargs.get("maintenance_note")
-        performed_by = kwargs.get("performed_by")
+        performed_by = kwargs.get("performed_by") or ""
+        estimated_cost = kwargs.get("estimated_cost")
+        approval_flag = kwargs.get("requires_approval") or False
         for instance in instances:
             history = _history_entry(kwargs, instance)
             if expected:
@@ -364,19 +471,78 @@ class SensorAsset(Regionalizable, Asset):
                 instance.next_calibration_due = expected
             if note:
                 history[_("Note")] = note
+            if performed_by:
+                history[_("Performed by")] = performed_by
+            if estimated_cost is not None:
+                history[_("Estimated cost")] = float(estimated_cost)
             instance.status = SensorAssetStatus.under_maintenance.id
             instance.last_status_change = timezone.now().date()
+            approval_required = approval_flag
+            if (
+                estimated_cost is not None
+                and estimated_cost >= cls.MAINTENANCE_APPROVAL_THRESHOLD
+            ):
+                approval_required = True
+            needs_manager = approval_required and cls._requires_permission(
+                requester, cls.APPROVE_MAINTENANCE_PERMISSION
+            )
+            record_status = (
+                MaintenanceRecordStatus.open.id
+                if needs_manager
+                else MaintenanceRecordStatus.in_progress.id
+            )
+            record_extra = {}
+            if estimated_cost is not None:
+                record_extra["estimated_cost"] = float(estimated_cost)
+            record_extra["approval_required"] = bool(needs_manager)
+            if performed_by:
+                record_extra["performed_by"] = performed_by
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.maintenance.id,
-                status=MaintenanceRecordStatus.in_progress.id,
+                status=record_status,
                 description=note or "",
                 expected_completion=expected,
                 out_of_service=True,
                 reported_by=requester,
                 performed_by=performed_by,
+                extra_data=record_extra,
             )
             history[_("Maintenance record")] = str(record.pk)
+            if needs_manager:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "maintenance",
+                        "record_id": record.pk,
+                        "estimated_cost": float(estimated_cost)
+                        if estimated_cost is not None
+                        else None,
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "start_sensor_maintenance",
+                    },
+                )
+            notify_asset_event(
+                instance,
+                AssetEventType.MAINTENANCE_STARTED,
+                payload={
+                    "record_id": record.pk,
+                    "expected_completion": expected.isoformat() if expected else None,
+                    "note": note or "",
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
+                    "approval_required": bool(needs_manager),
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "performed_by": performed_by,
+                    "transition": "start_sensor_maintenance",
+                },
+            )
 
     @classmethod
     @transition_action(
@@ -428,6 +594,7 @@ class SensorAsset(Regionalizable, Asset):
         battery_level = kwargs.get("battery_level_percent")
         summary = kwargs.get("maintenance_summary")
         performed_by = kwargs.get("performed_by")
+        cost = kwargs.get("maintenance_cost")
         for instance in instances:
             history = _history_entry(kwargs, instance)
             history[_("Calibrated on")] = calibrated_on
@@ -440,6 +607,10 @@ class SensorAsset(Regionalizable, Asset):
                 history[_("Battery level (%)")] = float(battery_level)
             if summary:
                 history[_("Summary")] = summary
+            if cost is not None:
+                history[_("Cost")] = float(cost)
+            if performed_by:
+                history[_("Performed by")] = performed_by
             instance.status = SensorAssetStatus.active.id
             instance.last_status_change = timezone.now().date()
             extra = {
@@ -449,12 +620,34 @@ class SensorAsset(Regionalizable, Asset):
                 if battery_level is not None
                 else None,
             }
+            if cost is not None:
+                extra["actual_cost"] = float(cost)
             MaintenanceRecord.close_latest(
                 instance,
                 record_type=MaintenanceRecordType.maintenance.id,
                 resolution=summary,
                 extra_data=extra,
+                cost=cost,
                 performed_by=performed_by or requester,
+            )
+            notify_asset_event(
+                instance,
+                AssetEventType.MAINTENANCE_COMPLETED,
+                payload={
+                    "calibrated_on": calibrated_on.isoformat(),
+                    "next_calibration_due": next_due.isoformat()
+                    if next_due
+                    else None,
+                    "battery_level_percent": float(battery_level)
+                    if battery_level is not None
+                    else None,
+                    "cost": float(cost) if cost is not None else None,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "performed_by": performed_by,
+                    "transition": "complete_sensor_maintenance",
+                },
             )
 
     @classmethod
@@ -468,17 +661,36 @@ class SensorAsset(Regionalizable, Asset):
                     widget=forms.Textarea(attrs={"rows": 3}),
                 )
             },
+            "estimated_cost": {
+                "field": forms.DecimalField(
+                    label=_("Estimated repair cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
         },
     )
     def mark_sensor_faulty(cls, instances, **kwargs):
         requester = kwargs.get("requester")
         note = kwargs.get("fault_note")
+        estimated_cost = kwargs.get("estimated_cost")
         for instance in instances:
             history = _history_entry(kwargs, instance)
             if note:
                 history[_("Fault note")] = note
+            if estimated_cost is not None:
+                history[_("Estimated cost")] = float(estimated_cost)
             instance.status = SensorAssetStatus.faulty.id
             instance.last_status_change = timezone.now().date()
+            approval_needed = (
+                estimated_cost is not None
+                and estimated_cost >= cls.MAINTENANCE_APPROVAL_THRESHOLD
+                and cls._requires_permission(
+                    requester, cls.APPROVE_MAINTENANCE_PERMISSION
+                )
+            )
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.repair.id,
@@ -486,8 +698,44 @@ class SensorAsset(Regionalizable, Asset):
                 description=note or "",
                 out_of_service=True,
                 reported_by=requester,
+                extra_data={
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
+                    "approval_required": bool(approval_needed),
+                },
             )
             history[_("Maintenance record")] = str(record.pk)
+            if approval_needed:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "fault",
+                        "record_id": record.pk,
+                        "estimated_cost": float(estimated_cost),
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "mark_sensor_faulty",
+                    },
+                )
+            notify_asset_event(
+                instance,
+                AssetEventType.INCIDENT_DAMAGE,
+                payload={
+                    "record_id": record.pk,
+                    "note": note or "",
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
+                },
+                severity="warning",
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "mark_sensor_faulty",
+                },
+            )
 
     @classmethod
     @transition_action(
@@ -547,6 +795,18 @@ class SensorAsset(Regionalizable, Asset):
             history[_("Retired on")] = retired_on
             if reason:
                 history[_("Reason")] = reason
+            approval_needed = cls._requires_permission(
+                requester, cls.APPROVE_RETIREMENT_PERMISSION
+            )
+            approval_record = None
+            if approval_needed:
+                approval_record, _ = instance.ensure_approval_ticket(
+                    action="retire",
+                    requester=requester,
+                    description=reason or _("Retirement approval requested"),
+                    extra={"requested_state": SensorAssetStatus.retired.id},
+                )
+                history[_("Approval requested")] = _("Pending managerial approval")
             instance.status = SensorAssetStatus.retired.id
             instance.last_status_change = retired_on
             instance.user = None
@@ -554,11 +814,46 @@ class SensorAsset(Regionalizable, Asset):
             instance.location_description = ""
             instance.latitude = None
             instance.longitude = None
+            if not approval_needed:
+                MaintenanceRecord.close_open_records(
+                    instance,
+                    record_type=MaintenanceRecordType.approval.id,
+                    resolution=reason or _("Retirement approved"),
+                    performed_by=requester,
+                )
             MaintenanceRecord.close_open_records(
                 instance,
                 resolution=reason or _("Sensor retired"),
                 performed_by=requester,
             )
+            notify_asset_event(
+                instance,
+                AssetEventType.STATUS_RETIRED,
+                payload={
+                    "retired_on": retired_on.isoformat(),
+                    "reason": reason or "",
+                    "approval_required": approval_needed,
+                    "approval_record_id": approval_record.pk if approval_record else None,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "retire_sensor_asset",
+                },
+            )
+            if approval_needed and approval_record:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "retire",
+                        "record_id": approval_record.pk,
+                        "reason": reason or "",
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "retire_sensor_asset",
+                    },
+                )
 
 
 class SensorAssetCategoryManager(models.Manager):

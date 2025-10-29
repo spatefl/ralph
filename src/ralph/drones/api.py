@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-from django.db.models import Prefetch
-
 from ralph.accounts.api_simple import ExtendedSimpleRalphUserSerializer
+from django.db.models import Prefetch
+from rest_framework import serializers
 from ralph.api import RalphAPISerializer, RalphAPIViewSet, router
 from ralph.assets.api.serializers import AssetSerializer, AssetLifecycleSerializerMixin
 from ralph.assets.models import (
@@ -25,6 +25,15 @@ class DroneAssetSimpleSerializer(AssetSerializer):
 class DroneAssetSerializer(AssetLifecycleSerializerMixin, AssetSerializer):
     owner = ExtendedSimpleRalphUserSerializer()
     user = ExtendedSimpleRalphUserSerializer()
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True
+    )
+    drone_type_display = serializers.CharField(
+        source="get_drone_type_display", read_only=True
+    )
+    mission_profile_display = serializers.CharField(
+        source="get_mission_profile_display_value", read_only=True
+    )
 
     class Meta(AssetSerializer.Meta):
         model = DroneAsset

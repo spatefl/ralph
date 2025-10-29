@@ -4,12 +4,17 @@ from django.contrib.admin.sites import AlreadyRegistered, NotRegistered
 from django.core.exceptions import ValidationError
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
 from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.admin.sites import ralph_site
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
+from ralph.assets.models.assets import (
+    MaintenanceRecordStatus,
+    ComplianceRecordStatus,
+)
 from ralph.assets.admin import (
     MaintenanceRecordInline,
     ComplianceRecordInline,
@@ -65,6 +70,8 @@ class SensorOperationsView(RalphDetailViewAdmin):
         "last_online_at",
         "battery_level_percent",
         "next_calibration_due",
+        "communication_protocol",
+        "power_source",
     ]
 
 
@@ -78,6 +85,7 @@ class SensorComplianceView(RalphDetailViewAdmin):
         "last_calibrated",
         "next_calibration_due",
         "calibration_interval_days",
+        "maintenance_contact",
     ]
 
 
@@ -90,8 +98,12 @@ class SensorDataView(RalphDetailViewAdmin):
     summary_fields = [
         "sensor_type",
         "external_identifier",
+        "measurement_unit",
         "battery_level_percent",
+        "battery_level_threshold_percent",
         "last_online_at",
+        "firmware_version",
+        "hardware_revision",
     ]
 
 
@@ -110,16 +122,25 @@ class SensorAssetAdmin(
         "category",
         "serial_number",
         "external_identifier",
+        "manufacturer",
+        "model_name",
         "model",
+        "power_source",
         "owner",
         "user",
         "location_description",
         "region",
         "service_env",
+        "maintenance_status",
+        "compliance_status",
     )
     search_fields = (
         "serial_number",
         "external_identifier",
+        "manufacturer",
+        "model_name",
+        "firmware_version",
+        "installation_site",
         "barcode",
         "hostname",
         "sensor_type",
@@ -130,6 +151,7 @@ class SensorAssetAdmin(
         "status",
         "sensor_type",
         "category",
+        "power_source",
         "region",
         "owner",
         "user",
@@ -153,49 +175,78 @@ class SensorAssetAdmin(
         "budget_info",
         "property_of",
     )
+    readonly_fields = ("maintenance_status", "compliance_status")
     fieldsets = (
         (
-            _("Identification"),
+            _("Identification & Hardware"),
             {
                 "fields": (
                     "hostname",
                     "sensor_type",
                     "category",
+                    "manufacturer",
+                    "model_name",
                     "serial_number",
                     "external_identifier",
                     "barcode",
                     "sn",
-                    "model",
+                    "firmware_version",
+                    "hardware_revision",
+                    "measurement_unit",
                 )
             },
         ),
         (
-            _("Status"),
+            _("Status & Telemetry"),
             {
                 "fields": (
                     "status",
                     "last_status_change",
+                    "power_source",
                     "battery_level_percent",
+                    "battery_level_threshold_percent",
                     "last_online_at",
                     "total_uptime_hours",
                     "total_downtime_hours",
-                    "last_calibrated",
-                    "next_calibration_due",
-                    "calibration_interval_days",
+                    "expected_update_interval_seconds",
+                    "maintenance_status",
+                    "compliance_status",
                 )
             },
         ),
         (
-            _("Assignments"),
+            _("Calibration & Compliance"),
+            {
+                "fields": (
+                    "last_calibrated",
+                    "next_calibration_due",
+                    "calibration_interval_days",
+                    "maintenance_contact",
+                )
+            },
+        ),
+        (
+            _("Deployment"),
             {
                 "fields": (
                     "owner",
                     "user",
                     "location_description",
+                    "installation_site",
                     "latitude",
                     "longitude",
                     "region",
                     "service_env",
+                )
+            },
+        ),
+        (
+            _("Integration & Links"),
+            {
+                "fields": (
+                    "communication_protocol",
+                    "external_feed_reference",
+                    "parent_asset",
                 )
             },
         ),
@@ -214,16 +265,7 @@ class SensorAssetAdmin(
                 )
             },
         ),
-        (
-            _("Integration"),
-            {
-                "fields": (
-                    "external_feed_reference",
-                    "remarks",
-                    "tags",
-                )
-            },
-        ),
+        (_("Additional"), {"fields": ("remarks", "tags")}),
     )
     change_views = [
         SensorOperationsView,
@@ -234,6 +276,27 @@ class SensorAssetAdmin(
     def __init__(self, *args, **kwargs):
         self.change_views = list(self.change_views or [])
         super().__init__(*args, **kwargs)
+
+    @admin.display(description=_("Maintenance"))
+    def maintenance_status(self, obj):
+        open_statuses = [
+            MaintenanceRecordStatus.open.id,
+            MaintenanceRecordStatus.in_progress.id,
+        ]
+        open_records = obj.maintenance_records.filter(status__in=open_statuses)
+        open_count = open_records.count()
+        overdue_count = open_records.filter(
+            expected_completion__isnull=False,
+            expected_completion__lt=timezone.now().date(),
+        ).count()
+        return _("{} open / {} overdue").format(open_count, overdue_count)
+
+    @admin.display(description=_("Compliance"))
+    def compliance_status(self, obj):
+        records = obj.compliance_records.all()
+        due_soon = records.filter(status=ComplianceRecordStatus.due_soon.id).count()
+        overdue = records.filter(status=ComplianceRecordStatus.overdue.id).count()
+        return _("{} due soon / {} overdue").format(due_soon, overdue)
 
 
 class SensorAssetCategoryAdmin(SensorAssetAdmin):

@@ -19,6 +19,7 @@ class AssetEventType(str, Enum):
     THRESHOLD_BREACH = "threshold.breach"
     COMPLIANCE_DUE = "compliance.due"
     REFUEL_LOGGED = "maintenance.refuel"
+    APPROVAL_REQUIRED = "approval.required"
 
 
 def default_dispatcher(asset: Any, event: Dict[str, Any]) -> None:

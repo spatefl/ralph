@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
-from ralph.accounts.api_simple import ExtendedSimpleRalphUserSerializer
 from django.db.models import Prefetch
+from rest_framework import serializers
+
+from ralph.accounts.api_simple import ExtendedSimpleRalphUserSerializer
 
 from ralph.api import RalphAPISerializer, RalphAPIViewSet, router
 from ralph.assets.api.serializers import AssetSerializer, AssetLifecycleSerializerMixin
@@ -25,6 +27,18 @@ class HeavyEquipmentAssetSimpleSerializer(AssetSerializer):
 class HeavyEquipmentAssetSerializer(AssetLifecycleSerializerMixin, AssetSerializer):
     owner = ExtendedSimpleRalphUserSerializer()
     user = ExtendedSimpleRalphUserSerializer()
+    deployment_status_display = serializers.CharField(
+        source="get_deployment_status_display", read_only=True
+    )
+    ownership_type_display = serializers.CharField(
+        source="get_ownership_type_display", read_only=True
+    )
+    functional_group = serializers.CharField(
+        source="functional_group", read_only=True
+    )
+    functional_group_display = serializers.CharField(
+        source="get_functional_group_display", read_only=True
+    )
 
     class Meta(AssetSerializer.Meta):
         model = HeavyEquipmentAsset

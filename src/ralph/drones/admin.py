@@ -4,12 +4,17 @@ from django.contrib.admin.sites import AlreadyRegistered, NotRegistered
 from django.core.exceptions import ValidationError
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
 from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.admin.sites import ralph_site
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
+from ralph.assets.models.assets import (
+    MaintenanceRecordStatus,
+    ComplianceRecordStatus,
+)
 from ralph.assets.admin import (
     MaintenanceRecordInline,
     ComplianceRecordInline,
@@ -62,8 +67,12 @@ class DroneOperationsView(RalphDetailViewAdmin):
     summary_fields = [
         "status",
         "current_mission",
+        "mission_payload_description",
         "total_flight_hours",
         "flight_count",
+        "battery_health_percent",
+        "battery_health_threshold_percent",
+        "battery_cycle_count",
         "next_maintenance_date",
         "next_maintenance_flight_hours",
     ]
@@ -79,6 +88,12 @@ class DroneComplianceView(RalphDetailViewAdmin):
         "last_service_date",
         "next_maintenance_date",
         "mission_profile",
+        "registration_expires_on",
+        "airworthiness_expires_on",
+        "insurance_expiry",
+        "operator_certificate_number",
+        "pilot_license_required",
+        "next_inspection_due",
     ]
 
 
@@ -91,7 +106,10 @@ class DroneDataView(RalphDetailViewAdmin):
     summary_fields = [
         "battery_capacity_mah",
         "battery_health_percent",
+        "battery_health_threshold_percent",
+        "battery_cycle_count",
         "flight_time_limit_minutes",
+        "max_range_km",
         "last_status_change",
     ]
 
@@ -111,17 +129,27 @@ class DroneAssetAdmin(
         "serial_number",
         "drone_type",
         "mission_profile",
+        "manufacturer",
         "model",
+        "registration_id",
+        "registration_expires_on",
+        "airworthiness_expires_on",
+        "insurance_expiry",
         "owner",
         "user",
         "assigned_team",
         "assigned_location",
         "region",
         "service_env",
+        "maintenance_status",
+        "compliance_status",
     )
     search_fields = (
         "identifier",
         "serial_number",
+        "registration_id",
+        "operator_certificate_number",
+        "insurance_policy_number",
         "barcode",
         "hostname",
         "model__name",
@@ -131,6 +159,8 @@ class DroneAssetAdmin(
         "drone_type",
         "mission_profile",
         "assigned_team",
+        "registration_expires_on",
+        "insurance_expiry",
         "region",
         "owner",
         "user",
@@ -156,6 +186,7 @@ class DroneAssetAdmin(
         "budget_info",
         "property_of",
     )
+    readonly_fields = ("maintenance_status", "compliance_status")
     change_views = [
         DroneOperationsView,
         DroneComplianceView,
@@ -165,6 +196,33 @@ class DroneAssetAdmin(
     def __init__(self, *args, **kwargs):
         self.change_views = list(self.change_views or [])
         super().__init__(*args, **kwargs)
+
+    @admin.display(description=_("Maintenance"))
+    def maintenance_status(self, obj):
+        open_statuses = [
+            MaintenanceRecordStatus.open.id,
+            MaintenanceRecordStatus.in_progress.id,
+        ]
+        open_records = obj.maintenance_records.filter(status__in=open_statuses)
+        open_count = open_records.count()
+        overdue_count = open_records.filter(
+            expected_completion__isnull=False,
+            expected_completion__lt=timezone.now().date(),
+        ).count()
+        return _("{open} open / {overdue} overdue").format(
+            open=open_count,
+            overdue=overdue_count,
+        )
+
+    @admin.display(description=_("Compliance"))
+    def compliance_status(self, obj):
+        records = obj.compliance_records.all()
+        due_soon = records.filter(status=ComplianceRecordStatus.due_soon.id).count()
+        overdue = records.filter(status=ComplianceRecordStatus.overdue.id).count()
+        return _("{soon} due soon / {overdue} overdue").format(
+            soon=due_soon,
+            overdue=overdue,
+        )
     fieldsets = (
         (
             _("Identification"),
@@ -173,54 +231,94 @@ class DroneAssetAdmin(
                     "hostname",
                     "identifier",
                     "serial_number",
-                    "barcode",
-                    "sn",
+                    "manufacturer",
                     "model",
                     "drone_type",
                     "mission_profile",
-                    "firmware_version",
-                    "last_firmware_update",
+                    "manufacture_year",
+                    "barcode",
+                    "sn",
                 )
             },
         ),
         (
-            _("Operations"),
+            _("Avionics & Firmware"),
+            {
+                "fields": (
+                    "firmware_version",
+                    "last_firmware_update",
+                    "communication_link_type",
+                )
+            },
+        ),
+        (
+            _("Compliance & Documentation"),
+            {
+                "fields": (
+                    "registration_id",
+                    "registration_authority",
+                    "registration_expires_on",
+                    "airworthiness_certificate_id",
+                    "airworthiness_expires_on",
+                    "operator_certificate_number",
+                    "pilot_license_required",
+                    "insurance_policy_number",
+                    "insurance_provider",
+                    "insurance_expiry",
+                )
+            },
+        ),
+        (
+            _("Operations & Payload"),
             {
                 "fields": (
                     "status",
                     "last_status_change",
                     "current_mission",
-                    "battery_capacity_mah",
-                    "battery_health_percent",
-                    "flight_time_limit_minutes",
+                    "mission_payload_description",
+                    "payload_mounting",
+                    "payload_power_requirements",
                     "total_flight_hours",
                     "flight_count",
+                    "battery_capacity_mah",
+                    "battery_health_percent",
+                    "battery_health_threshold_percent",
+                    "battery_cycle_count",
+                    "flight_time_limit_minutes",
+                    "max_range_km",
+                    "max_endurance_minutes",
+                    "maintenance_status",
+                    "compliance_status",
                 )
             },
         ),
         (
-            _("Assignments"),
+            _("Assignments & Location"),
             {
                 "fields": (
                     "owner",
                     "user",
                     "assigned_team",
                     "assigned_location",
+                    "home_location_description",
                     "last_known_latitude",
                     "last_known_longitude",
                     "last_known_altitude_m",
+                    "failsafe_behavior",
                     "region",
                     "service_env",
                 )
             },
         ),
         (
-            _("Maintenance"),
+            _("Maintenance & Inspection"),
             {
                 "fields": (
                     "last_service_date",
                     "next_maintenance_date",
                     "next_maintenance_flight_hours",
+                    "last_inspection_date",
+                    "next_inspection_due",
                 )
             },
         ),

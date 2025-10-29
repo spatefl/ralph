@@ -66,6 +66,20 @@ class HeavyEquipmentFunctionalGroup(Choices):
     other = _("Miscellaneous heavy equipment")
 
 
+class HeavyEquipmentOwnershipType(models.TextChoices):
+    OWNED = "owned", _("Owned")
+    LEASED = "leased", _("Leased")
+    RENTED = "rented", _("Rented")
+    BORROWED = "borrowed", _("Borrowed / mutual aid")
+
+
+class HeavyEquipmentDeploymentStatus(models.TextChoices):
+    STAGED = "staged", _("Staged / ready")
+    DEPLOYED = "deployed", _("Deployed / on-site")
+    RETURNING = "returning", _("Returning / demobilizing")
+    STORED = "stored", _("Stored / warehouse")
+
+
 HEAVY_EQUIPMENT_GROUP_MAP = {
     HeavyEquipmentFunctionalGroup.debris_removal.id: {
         HeavyEquipmentType.EXCAVATOR,
@@ -99,6 +113,9 @@ class HeavyEquipmentGroupManager(models.Manager):
 
 class HeavyEquipmentAsset(Regionalizable, Asset):
     _allow_in_dashboard = True
+    MAINTENANCE_APPROVAL_THRESHOLD = Decimal("5000.00")
+    APPROVE_MAINTENANCE_PERMISSION = "heavy_equipment.approve_heavyequipment_maintenance"
+    APPROVE_RETIREMENT_PERMISSION = "heavy_equipment.approve_heavyequipment_retirement"
 
     equipment_identifier = NullableCharField(
         max_length=64,
@@ -249,6 +266,96 @@ class HeavyEquipmentAsset(Regionalizable, Asset):
         blank=True,
         verbose_name=_("next service hours"),
     )
+    power_output_kw = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("power output (kW)"),
+    )
+    waste_tank_capacity_liters = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("waste tank capacity (L)"),
+    )
+    waste_level_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("waste level (%)"),
+    )
+    hydraulic_oil_capacity_liters = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("hydraulic oil capacity (L)"),
+    )
+    hydraulic_oil_level_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("hydraulic oil level (%)"),
+    )
+    ownership_type = models.CharField(
+        max_length=16,
+        choices=HeavyEquipmentOwnershipType.choices,
+        default=HeavyEquipmentOwnershipType.OWNED,
+        verbose_name=_("ownership type"),
+    )
+    acquisition_vendor = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("acquisition vendor"),
+    )
+    acquired_on = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("acquired on"),
+    )
+    acquisition_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("acquisition cost"),
+    )
+    lease_expiration = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("lease expiration"),
+    )
+    warranty_expiry = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("warranty expiry"),
+    )
+    deployment_status = models.CharField(
+        max_length=16,
+        choices=HeavyEquipmentDeploymentStatus.choices,
+        default=HeavyEquipmentDeploymentStatus.STAGED,
+        verbose_name=_("deployment status"),
+    )
+    deployment_site = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("deployment site / project"),
+    )
+    deployed_on = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("last deployed on"),
+    )
+    deployment_notes = models.TextField(
+        blank=True,
+        verbose_name=_("deployment notes"),
+    )
     status = TransitionField(
         default=HeavyEquipmentAssetStatus.new.id,
         choices=HeavyEquipmentAssetStatus(),
@@ -259,9 +366,33 @@ class HeavyEquipmentAsset(Regionalizable, Asset):
         verbose_name=_("last status change"),
     )
 
+    @staticmethod
+    def _requires_permission(requester, permission_code):
+        return requester is not None and not requester.has_perm(permission_code)
+
+    def ensure_approval_ticket(self, action, *, requester=None, description="", extra=None):
+        record, created = MaintenanceRecord.ensure_approval_record(
+            base_object=self,
+            action=action,
+            description=description,
+            requester=requester,
+            extra=extra,
+        )
+        return record, created
+
     class Meta:
         verbose_name = _("Heavy equipment asset")
         verbose_name_plural = _("Heavy equipment assets")
+        permissions = [
+            (
+                "approve_heavyequipment_maintenance",
+                _("Can approve heavy equipment maintenance"),
+            ),
+            (
+                "approve_heavyequipment_retirement",
+                _("Can approve heavy equipment retirement"),
+            ),
+        ]
 
     def __str__(self):
         identifier = self.equipment_identifier or self.hostname or self.barcode or "-"
@@ -535,12 +666,36 @@ class HeavyEquipmentMaterialHandling(
                     widget=forms.Textarea(attrs={"rows": 3}),
                 )
             },
+            "performed_by": {
+                "field": forms.CharField(
+                    label=_("Performed by"),
+                    required=False,
+                )
+            },
+            "estimated_cost": {
+                "field": forms.DecimalField(
+                    label=_("Estimated cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
+            "requires_approval": {
+                "field": forms.BooleanField(
+                    label=_("Flag for manager approval"),
+                    required=False,
+                )
+            },
         },
     )
     def start_heavy_equipment_maintenance(cls, instances, **kwargs):
         expected = kwargs.get("expected_completion")
         note = kwargs.get("maintenance_note")
         requester = kwargs.get("requester")
+        performed_by = kwargs.get("performed_by") or ""
+        estimated_cost = kwargs.get("estimated_cost")
+        approval_flag = kwargs.get("requires_approval") or False
         for instance in instances:
             history = _history_entry(kwargs, instance)
             if expected:
@@ -548,18 +703,60 @@ class HeavyEquipmentMaterialHandling(
                 history[_("Expected completion")] = expected
             if note:
                 history[_("Note")] = note
+            if performed_by:
+                history[_("Performed by")] = performed_by
+            if estimated_cost is not None:
+                history[_("Estimated cost")] = float(estimated_cost)
             instance.status = HeavyEquipmentAssetStatus.under_maintenance.id
             instance.last_status_change = timezone.now().date()
+            approval_required = approval_flag
+            if (
+                estimated_cost is not None
+                and estimated_cost >= cls.MAINTENANCE_APPROVAL_THRESHOLD
+            ):
+                approval_required = True
+            needs_manager = approval_required and cls._requires_permission(
+                requester, cls.APPROVE_MAINTENANCE_PERMISSION
+            )
+            record_status = (
+                MaintenanceRecordStatus.open.id
+                if needs_manager
+                else MaintenanceRecordStatus.in_progress.id
+            )
+            record_extra = {}
+            if estimated_cost is not None:
+                record_extra["estimated_cost"] = float(estimated_cost)
+            record_extra["approval_required"] = bool(needs_manager)
+            if performed_by:
+                record_extra["performed_by"] = performed_by
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.maintenance.id,
-                status=MaintenanceRecordStatus.in_progress.id,
+                status=record_status,
                 description=note or "",
                 expected_completion=expected,
                 out_of_service=True,
                 reported_by=requester,
+                performed_by=performed_by,
+                extra_data=record_extra,
             )
             history[_("Maintenance record")] = str(record.pk)
+            if needs_manager:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "maintenance",
+                        "record_id": record.pk,
+                        "estimated_cost": float(estimated_cost)
+                        if estimated_cost is not None
+                        else None,
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "start_heavy_equipment_maintenance",
+                    },
+                )
             notify_asset_event(
                 instance,
                 AssetEventType.MAINTENANCE_STARTED,
@@ -567,6 +764,10 @@ class HeavyEquipmentMaterialHandling(
                     "record_id": record.pk,
                     "expected_completion": expected.isoformat() if expected else None,
                     "note": note or "",
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
+                    "approval_required": bool(needs_manager),
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
@@ -615,6 +816,21 @@ class HeavyEquipmentMaterialHandling(
                     widget=forms.Textarea(attrs={"rows": 3}),
                 )
             },
+            "maintenance_cost": {
+                "field": forms.DecimalField(
+                    label=_("Actual cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
+            "performed_by": {
+                "field": forms.CharField(
+                    label=_("Performed by"),
+                    required=False,
+                )
+            },
         },
     )
     def complete_heavy_equipment_maintenance(cls, instances, **kwargs):
@@ -623,6 +839,8 @@ class HeavyEquipmentMaterialHandling(
         next_date = kwargs.get("next_service_date")
         next_hours = kwargs.get("next_service_hours")
         summary = kwargs.get("maintenance_summary")
+        cost = kwargs.get("maintenance_cost")
+        performed_by = kwargs.get("performed_by")
         requester = kwargs.get("requester")
         for instance in instances:
             history = _history_entry(kwargs, instance)
@@ -639,6 +857,10 @@ class HeavyEquipmentMaterialHandling(
                 history[_("Next service hours")] = next_hours
             if summary:
                 history[_("Summary")] = summary
+            if cost is not None:
+                history[_("Cost")] = float(cost)
+            if performed_by:
+                history[_("Performed by")] = performed_by
             instance.status = HeavyEquipmentAssetStatus.active.id
             instance.last_status_change = timezone.now().date()
             extra = {
@@ -651,11 +873,15 @@ class HeavyEquipmentMaterialHandling(
                 else None,
                 "next_service_hours": next_hours,
             }
+            if cost is not None:
+                extra["actual_cost"] = float(cost)
             record = MaintenanceRecord.close_latest(
                 instance,
                 record_type=MaintenanceRecordType.maintenance.id,
                 resolution=summary,
                 extra_data=extra,
+                cost=cost,
+                performed_by=performed_by,
             )
             notify_asset_event(
                 instance,
@@ -671,6 +897,7 @@ class HeavyEquipmentMaterialHandling(
                     "hours_used": float(hours_used)
                     if hours_used is not None
                     else None,
+                    "cost": float(cost) if cost is not None else None,
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
@@ -751,14 +978,36 @@ class HeavyEquipmentMaterialHandling(
             history[_("Retired on")] = retired_on
             if reason:
                 history[_("Reason")] = reason
+            approval_needed = cls._requires_permission(
+                requester, cls.APPROVE_RETIREMENT_PERMISSION
+            )
+            approval_record = None
+            if approval_needed:
+                approval_record, _ = instance.ensure_approval_ticket(
+                    action="retire",
+                    requester=requester,
+                    description=reason or _("Retirement approval requested"),
+                    extra={
+                        "requested_state": HeavyEquipmentAssetStatus.retired.id,
+                    },
+                )
+                history[_("Approval requested")] = _("Pending managerial approval")
             instance.status = HeavyEquipmentAssetStatus.retired.id
             instance.last_status_change = retired_on
             instance.user = None
             instance.owner = None
             instance.assigned_location = ""
+            if not approval_needed:
+                MaintenanceRecord.close_open_records(
+                    instance,
+                    record_type=MaintenanceRecordType.approval.id,
+                    resolution=reason or _("Retirement approved"),
+                    performed_by=requester,
+                )
             MaintenanceRecord.close_open_records(
                 instance,
                 resolution=reason or _("Asset retired"),
+                performed_by=requester,
             )
             notify_asset_event(
                 instance,
@@ -766,12 +1015,28 @@ class HeavyEquipmentMaterialHandling(
                 payload={
                     "retired_on": retired_on.isoformat(),
                     "reason": reason or "",
+                    "approval_required": approval_needed,
+                    "approval_record_id": approval_record.pk if approval_record else None,
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
                     "transition": "retire_heavy_equipment_asset",
                 },
             )
+            if approval_needed and approval_record:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "retire",
+                        "record_id": approval_record.pk,
+                        "reason": reason or "",
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "retire_heavy_equipment_asset",
+                    },
+                )
 
     @classmethod
     @transition_action(
@@ -810,6 +1075,15 @@ class HeavyEquipmentMaterialHandling(
                     widget=forms.Textarea(attrs={"rows": 2}),
                 )
             },
+            "fuel_cost": {
+                "field": forms.DecimalField(
+                    label=_("Fuel cost"),
+                    required=False,
+                    max_digits=10,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
         },
     )
     def log_heavy_equipment_refuel(cls, instances, **kwargs):
@@ -817,6 +1091,7 @@ class HeavyEquipmentMaterialHandling(
         fuel_added = kwargs.get("fuel_added")
         fuel_level = kwargs.get("fuel_level_percent")
         note = kwargs.get("note")
+        fuel_cost = kwargs.get("fuel_cost")
         requester = kwargs.get("requester")
         for instance in instances:
             history = _history_entry(kwargs, instance)
@@ -828,6 +1103,8 @@ class HeavyEquipmentMaterialHandling(
                 history[_("Fuel level (%)")] = float(fuel_level)
             if note:
                 history[_("Note")] = note
+            if fuel_cost is not None:
+                history[_("Fuel cost")] = float(fuel_cost)
             extra = {
                 "refueled_on": refueled_on.isoformat(),
                 "fuel_added_l": float(fuel_added)
@@ -837,6 +1114,8 @@ class HeavyEquipmentMaterialHandling(
                 if fuel_level is not None
                 else None,
             }
+            if fuel_cost is not None:
+                extra["fuel_cost"] = float(fuel_cost)
             MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.refuel.id,
@@ -856,6 +1135,7 @@ class HeavyEquipmentMaterialHandling(
                     if fuel_level is not None
                     else None,
                     "note": note or "",
+                    "fuel_cost": float(fuel_cost) if fuel_cost is not None else None,
                 },
                 metadata={
                     "requester": requester.pk if requester else None,

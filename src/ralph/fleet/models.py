@@ -113,6 +113,9 @@ class FleetAssetGroupManager(models.Manager):
 
 class FleetAsset(Regionalizable, Asset):
     _allow_in_dashboard = True
+    MAINTENANCE_APPROVAL_THRESHOLD = Decimal("3000.00")
+    APPROVE_MAINTENANCE_PERMISSION = "fleet.approve_fleet_maintenance"
+    APPROVE_RETIREMENT_PERMISSION = "fleet.approve_fleet_retirement"
 
     license_plate = NullableCharField(
         max_length=32,
@@ -133,6 +136,48 @@ class FleetAsset(Regionalizable, Asset):
         choices=FleetVehicleType.choices,
         default=FleetVehicleType.OTHER,
         verbose_name=_("vehicle type"),
+    )
+    make = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("make"),
+    )
+    vehicle_model = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("vehicle model"),
+    )
+    body_style = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("body style"),
+    )
+    drivetrain = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("drivetrain"),
+    )
+    color = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("color"),
+    )
+    seating_capacity = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("seating capacity"),
+    )
+    gross_vehicle_weight_rating_kg = models.DecimalField(
+        max_digits=7,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        verbose_name=_("GVWR (kg)"),
+    )
+    manufacture_year = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("manufacture year"),
     )
     fuel_type = models.CharField(
         max_length=16,
@@ -185,6 +230,46 @@ class FleetAsset(Regionalizable, Asset):
         blank=True,
         verbose_name=_("insurance expiry"),
     )
+    insurance_policy_number = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("insurance policy number"),
+    )
+    insurance_provider = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("insurance provider"),
+    )
+    registration_number = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("registration number"),
+    )
+    registration_state = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("registration state / region"),
+    )
+    registration_authority = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("registration authority"),
+    )
+    emissions_class = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("emissions class"),
+    )
+    roadworthiness_certificate_expiry = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("roadworthiness certificate expiry"),
+    )
+    fuel_card_identifier = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("fuel card ID"),
+    )
     status = TransitionField(
         default=FleetAssetStatus.new.id,
         choices=FleetAssetStatus(),
@@ -209,10 +294,102 @@ class FleetAsset(Regionalizable, Asset):
         blank=True,
         verbose_name=_("last status change"),
     )
+    last_telematics_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("last telematics update"),
+    )
+    telematics_device_id = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("telematics device ID"),
+    )
+    telematics_provider = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name=_("telematics provider"),
+    )
+    last_telematics_status = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("last telematics status"),
+    )
+    last_known_latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        verbose_name=_("last known latitude"),
+    )
+    last_known_longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        verbose_name=_("last known longitude"),
+    )
+    last_known_heading_deg = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(360)],
+        verbose_name=_("last known heading (deg)"),
+    )
+    last_known_speed_kmh = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("last known speed (km/h)"),
+    )
+    fuel_level_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("fuel level (%)"),
+    )
+    engine_hours = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        verbose_name=_("engine hours"),
+    )
+    emergency_equipment_inventory = models.TextField(
+        blank=True,
+        verbose_name=_("emergency equipment inventory"),
+    )
+
+    @staticmethod
+    def _requires_permission(requester, permission_code):
+        return requester is not None and not requester.has_perm(permission_code)
+
+    def ensure_approval_ticket(self, action, *, requester=None, description="", extra=None):
+        record, created = MaintenanceRecord.ensure_approval_record(
+            base_object=self,
+            action=action,
+            description=description,
+            requester=requester,
+            extra=extra,
+        )
+        return record, created
 
     class Meta:
         verbose_name = _("Fleet asset")
         verbose_name_plural = _("Fleet assets")
+        permissions = [
+            (
+                "approve_fleet_maintenance",
+                _("Can approve fleet maintenance"),
+            ),
+            (
+                "approve_fleet_retirement",
+                _("Can approve fleet retirement"),
+            ),
+        ]
 
     def __str__(self):
         identifier = self.license_plate or self.hostname or self.barcode or "-"
@@ -448,13 +625,36 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                     widget=forms.Textarea(attrs={"rows": 3}),
                 )
             },
+            "performed_by": {
+                "field": forms.CharField(
+                    label=_("Performed by"),
+                    required=False,
+                )
+            },
+            "estimated_cost": {
+                "field": forms.DecimalField(
+                    label=_("Estimated cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
+            "requires_approval": {
+                "field": forms.BooleanField(
+                    label=_("Flag for manager approval"),
+                    required=False,
+                )
+            },
         },
     )
     def start_fleet_maintenance(cls, instances, **kwargs):
         requester = kwargs.get("requester")
         expected_completion = kwargs.get("expected_completion")
         note = kwargs.get("maintenance_note")
-        performed_by = kwargs.get("performed_by")
+        performed_by = kwargs.get("performed_by") or ""
+        estimated_cost = kwargs.get("estimated_cost")
+        approval_flag = kwargs.get("requires_approval") or False
         for instance in instances:
             history = _history_entry(kwargs, instance)
             if expected_completion:
@@ -462,19 +662,60 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                 instance.next_service_date = expected_completion
             if note:
                 history[_("Note")] = note
+            if performed_by:
+                history[_("Performed by")] = performed_by
+            if estimated_cost is not None:
+                history[_("Estimated cost")] = float(estimated_cost)
             instance.status = FleetAssetStatus.under_maintenance.id
             instance.last_status_change = timezone.now().date()
+            approval_required = approval_flag
+            if (
+                estimated_cost is not None
+                and estimated_cost >= cls.MAINTENANCE_APPROVAL_THRESHOLD
+            ):
+                approval_required = True
+            needs_manager = approval_required and cls._requires_permission(
+                requester, cls.APPROVE_MAINTENANCE_PERMISSION
+            )
+            record_status = (
+                MaintenanceRecordStatus.open.id
+                if needs_manager
+                else MaintenanceRecordStatus.in_progress.id
+            )
+            record_extra = {}
+            if estimated_cost is not None:
+                record_extra["estimated_cost"] = float(estimated_cost)
+            record_extra["approval_required"] = bool(needs_manager)
+            if performed_by:
+                record_extra["performed_by"] = performed_by
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.maintenance.id,
-                status=MaintenanceRecordStatus.in_progress.id,
+                status=record_status,
                 description=note or "",
                 expected_completion=expected_completion,
                 out_of_service=True,
                 reported_by=requester,
                 performed_by=performed_by,
+                extra_data=record_extra,
             )
             history[_("Maintenance record")] = str(record.pk)
+            if needs_manager:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "maintenance",
+                        "record_id": record.pk,
+                        "estimated_cost": float(estimated_cost)
+                        if estimated_cost is not None
+                        else None,
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "start_fleet_maintenance",
+                    },
+                )
             notify_asset_event(
                 instance,
                 AssetEventType.MAINTENANCE_STARTED,
@@ -484,6 +725,10 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                     if expected_completion
                     else None,
                     "note": note or "",
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
+                    "approval_required": bool(needs_manager),
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
@@ -531,6 +776,21 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                     widget=forms.Textarea(attrs={"rows": 3}),
                 )
             },
+            "maintenance_cost": {
+                "field": forms.DecimalField(
+                    label=_("Actual cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
+            "performed_by": {
+                "field": forms.CharField(
+                    label=_("Performed by"),
+                    required=False,
+                )
+            },
         },
     )
     def complete_fleet_maintenance(cls, instances, **kwargs):
@@ -541,6 +801,7 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
         next_odometer = kwargs.get("next_service_odometer")
         summary = kwargs.get("maintenance_summary")
         performed_by = kwargs.get("performed_by")
+        cost = kwargs.get("maintenance_cost")
         for instance in instances:
             history = _history_entry(kwargs, instance)
             history[_("Completed on")] = completed_on
@@ -556,6 +817,10 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                 history[_("Next service odometer (km)")] = next_odometer
             if summary:
                 history[_("Summary")] = summary
+            if cost is not None:
+                history[_("Cost")] = float(cost)
+            if performed_by:
+                history[_("Performed by")] = performed_by
             instance.status = FleetAssetStatus.in_use.id
             instance.last_status_change = timezone.now().date()
             extra = {
@@ -566,12 +831,16 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                 else None,
                 "next_service_odometer": next_odometer,
             }
+            if cost is not None:
+                extra["actual_cost"] = float(cost)
             record = MaintenanceRecord.close_latest(
                 instance,
                 record_type=MaintenanceRecordType.maintenance.id,
                 resolution=summary,
                 extra_data=extra,
-                performed_by=performed_by or (requester.get_full_name() if requester else None),
+                cost=cost,
+                performed_by=performed_by
+                or (requester.get_full_name() if requester else None),
             )
             notify_asset_event(
                 instance,
@@ -584,6 +853,8 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                     if next_date
                     else None,
                     "next_service_odometer": next_odometer,
+                    "odometer_km": odometer,
+                    "cost": float(cost) if cost is not None else None,
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
@@ -603,17 +874,40 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                     widget=forms.Textarea(attrs={"rows": 3}),
                 )
             },
+            "estimated_cost": {
+                "field": forms.DecimalField(
+                    label=_("Estimated repair cost"),
+                    required=False,
+                    max_digits=12,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
         },
     )
     def flag_fleet_damage(cls, instances, **kwargs):
         requester = kwargs.get("requester")
         note = kwargs.get("damage_note")
+        estimated_cost = kwargs.get("estimated_cost")
         for instance in instances:
             history = _history_entry(kwargs, instance)
             if note:
                 history[_("Damage note")] = note
+            if estimated_cost is not None:
+                history[_("Estimated cost")] = float(estimated_cost)
             instance.status = FleetAssetStatus.damaged.id
             instance.last_status_change = timezone.now().date()
+            record_extra = {}
+            if estimated_cost is not None:
+                record_extra["estimated_cost"] = float(estimated_cost)
+            needs_manager = (
+                estimated_cost is not None
+                and estimated_cost >= cls.MAINTENANCE_APPROVAL_THRESHOLD
+                and cls._requires_permission(
+                    requester, cls.APPROVE_MAINTENANCE_PERMISSION
+                )
+            )
+            record_extra["approval_required"] = bool(needs_manager)
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.repair.id,
@@ -621,14 +915,32 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                 description=note or "",
                 out_of_service=True,
                 reported_by=requester,
+                extra_data=record_extra,
             )
             history[_("Maintenance record")] = str(record.pk)
+            if needs_manager:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "damage_report",
+                        "record_id": record.pk,
+                        "estimated_cost": float(estimated_cost),
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "flag_fleet_damage",
+                    },
+                )
             notify_asset_event(
                 instance,
                 AssetEventType.INCIDENT_DAMAGE,
                 payload={
                     "record_id": record.pk,
                     "note": note or "",
+                    "estimated_cost": float(estimated_cost)
+                    if estimated_cost is not None
+                    else None,
                 },
                 severity="warning",
                 metadata={
@@ -667,10 +979,29 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
             instance.last_status_change = retired_on
             if reason:
                 history[_("Reason")] = reason
+            approval_needed = cls._requires_permission(
+                requester, cls.APPROVE_RETIREMENT_PERMISSION
+            )
+            approval_record = None
+            if approval_needed:
+                approval_record, _ = instance.ensure_approval_ticket(
+                    action="retire",
+                    requester=requester,
+                    description=reason or _("Retirement approval requested"),
+                    extra={"requested_state": FleetAssetStatus.retired.id},
+                )
+                history[_("Approval requested")] = _("Pending managerial approval")
             instance.status = FleetAssetStatus.retired.id
             instance.user = None
             instance.owner = None
             instance.assigned_location = ""
+            if not approval_needed:
+                MaintenanceRecord.close_open_records(
+                    instance,
+                    record_type=MaintenanceRecordType.approval.id,
+                    resolution=reason or _("Retirement approved"),
+                    performed_by=requester,
+                )
             MaintenanceRecord.close_open_records(
                 instance,
                 resolution=reason or _("Asset retired"),
@@ -682,12 +1013,28 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                 payload={
                     "retired_on": retired_on.isoformat(),
                     "reason": reason or "",
+                    "approval_required": approval_needed,
+                    "approval_record_id": approval_record.pk if approval_record else None,
                 },
                 metadata={
                     "requester": requester.pk if requester else None,
                     "transition": "retire_fleet_asset",
                 },
             )
+            if approval_needed and approval_record:
+                notify_asset_event(
+                    instance,
+                    AssetEventType.APPROVAL_REQUIRED,
+                    payload={
+                        "action": "retire",
+                        "record_id": approval_record.pk,
+                        "reason": reason or "",
+                    },
+                    metadata={
+                        "requester": requester.pk if requester else None,
+                        "transition": "retire_fleet_asset",
+                    },
+                )
 
 
 class VehicleQuerySet(models.QuerySet):

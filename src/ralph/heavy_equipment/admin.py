@@ -1,3 +1,5 @@
+from django.contrib import admin
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.decorators import register
@@ -5,6 +7,10 @@ from ralph.admin.mixins import RalphAdmin
 from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
+from ralph.assets.models.assets import (
+    MaintenanceRecordStatus,
+    ComplianceRecordStatus,
+)
 from ralph.assets.admin import (
     MaintenanceRecordInline,
     ComplianceRecordInline,
@@ -43,9 +49,12 @@ class HeavyEquipmentOperationsView(RalphDetailViewAdmin):
     inlines = [MaintenanceRecordInline, DeploymentEntryInline]
     summary_fields = [
         "status",
+        "deployment_status",
+        "deployment_site",
         "assigned_location",
         "hours_used",
         "odometer_km",
+        "deployed_on",
         "next_service_date",
         "next_service_hours",
     ]
@@ -61,6 +70,11 @@ class HeavyEquipmentComplianceView(RalphDetailViewAdmin):
         "last_service_date",
         "next_service_date",
         "assigned_location",
+        "ownership_type",
+        "acquisition_vendor",
+        "acquired_on",
+        "warranty_expiry",
+        "lease_expiration",
     ]
 
 
@@ -73,8 +87,11 @@ class HeavyEquipmentDataView(RalphDetailViewAdmin):
     summary_fields = [
         "hours_used",
         "fuel_level_percent",
+        "fuel_level_threshold_percent",
         "water_level_percent",
+        "water_level_threshold_percent",
         "battery_level_percent",
+        "battery_level_threshold_percent",
         "last_status_change",
     ]
 
@@ -91,20 +108,27 @@ class HeavyEquipmentAssetAdmin(
     inlines = [MaintenanceRecordInline]
     list_display = (
         "status",
+        "deployment_status",
         "equipment_identifier",
         "equipment_type",
         "manufacturer",
         "model",
+        "ownership_type",
         "owner",
         "user",
         "assigned_location",
+        "deployment_site",
         "region",
         "service_env",
+        "maintenance_status",
+        "compliance_status",
     )
     search_fields = (
         "equipment_identifier",
         "manufacturer",
         "model_name",
+        "deployment_site",
+        "acquisition_vendor",
         "barcode",
         "hostname",
         "sn",
@@ -113,6 +137,8 @@ class HeavyEquipmentAssetAdmin(
     list_filter = (
         "status",
         "equipment_type",
+        "deployment_status",
+        "ownership_type",
         "region",
         "owner",
         "user",
@@ -136,6 +162,7 @@ class HeavyEquipmentAssetAdmin(
         "budget_info",
         "property_of",
     )
+    readonly_fields = ("maintenance_status", "compliance_status")
     fieldsets = (
         (
             _("Identification"),
@@ -153,10 +180,11 @@ class HeavyEquipmentAssetAdmin(
             },
         ),
         (
-            _("Status"),
+            _("Status & Service"),
             {
                 "fields": (
                     "status",
+                    "deployment_status",
                     "last_status_change",
                     "hours_used",
                     "odometer_km",
@@ -165,19 +193,40 @@ class HeavyEquipmentAssetAdmin(
                     "last_service_date",
                     "next_service_date",
                     "next_service_hours",
+                    "maintenance_status",
+                    "compliance_status",
                 )
             },
         ),
         (
-            _("Capacity"),
+            _("Capacity & Levels"),
             {
                 "fields": (
                     "fuel_capacity_liters",
                     "fuel_level_percent",
+                    "fuel_level_threshold_percent",
                     "water_tank_capacity_liters",
                     "water_level_percent",
+                    "water_level_threshold_percent",
+                    "waste_tank_capacity_liters",
+                    "waste_level_percent",
                     "battery_capacity_kwh",
                     "battery_level_percent",
+                    "battery_level_threshold_percent",
+                    "hydraulic_oil_capacity_liters",
+                    "hydraulic_oil_level_percent",
+                    "power_output_kw",
+                )
+            },
+        ),
+        (
+            _("Deployment"),
+            {
+                "fields": (
+                    "deployment_site",
+                    "assigned_location",
+                    "deployed_on",
+                    "deployment_notes",
                 )
             },
         ),
@@ -187,16 +236,21 @@ class HeavyEquipmentAssetAdmin(
                 "fields": (
                     "owner",
                     "user",
-                    "assigned_location",
                     "region",
                     "service_env",
                 )
             },
         ),
         (
-            _("Financial"),
+            _("Financial & Ownership"),
             {
                 "fields": (
+                    "ownership_type",
+                    "acquisition_vendor",
+                    "acquired_on",
+                    "acquisition_cost",
+                    "lease_expiration",
+                    "warranty_expiry",
                     "price",
                     "currency",
                     "invoice_no",
@@ -227,6 +281,33 @@ class HeavyEquipmentAssetAdmin(
     def __init__(self, *args, **kwargs):
         self.change_views = list(self.change_views or [])
         super().__init__(*args, **kwargs)
+
+    @admin.display(description=_("Maintenance"))
+    def maintenance_status(self, obj):
+        open_statuses = [
+            MaintenanceRecordStatus.open.id,
+            MaintenanceRecordStatus.in_progress.id,
+        ]
+        open_records = obj.maintenance_records.filter(status__in=open_statuses)
+        open_count = open_records.count()
+        overdue_count = open_records.filter(
+            expected_completion__isnull=False,
+            expected_completion__lt=timezone.now().date(),
+        ).count()
+        return _("{open} open / {overdue} overdue").format(
+            open=open_count,
+            overdue=overdue_count,
+        )
+
+    @admin.display(description=_("Compliance"))
+    def compliance_status(self, obj):
+        records = obj.compliance_records.all()
+        due_soon = records.filter(status=ComplianceRecordStatus.due_soon.id).count()
+        overdue = records.filter(status=ComplianceRecordStatus.overdue.id).count()
+        return _("{soon} due soon / {overdue} overdue").format(
+            soon=due_soon,
+            overdue=overdue,
+        )
 
 
 class HeavyEquipmentGroupAdmin(HeavyEquipmentAssetAdmin):

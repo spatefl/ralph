@@ -17,6 +17,7 @@ We sincerely appreciate all past contributions that have shaped Ralph into the p
 - Each asset admin (Heavy Equipment, Fleet, Drones, Sensors) gained Operations, Compliance, and Telemetry tabs so maintenance logs, compliance records, deployment history, and telemetry readings are visible without leaving the detail page.
 - Fleet/Drones/Heavy Equipment/Sensor APIs expose the same lifecycle data (latest maintenance/compliance/deployment/telemetry summaries) for SC3 dashboards and automation.
 - Dashboard tiles render lifecycle alerts (open maintenance, expiring compliance, active deployments) so operations teams see hot spots at a glance.
+- Lifecycle workflows now include approval-aware transitions (maintenance, damage, retire) that raise structured events, log `MaintenanceRecord` tickets with costs, and surface maintenance/compliance summaries in both the admin and the API responses for downstream automation.
 
 
 ## Overview

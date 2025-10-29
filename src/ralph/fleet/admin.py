@@ -4,12 +4,17 @@ from django.contrib.admin.sites import AlreadyRegistered, NotRegistered
 from django.core.exceptions import ValidationError
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
 from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.admin.sites import ralph_site
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
+from ralph.assets.models.assets import (
+    MaintenanceRecordStatus,
+    ComplianceRecordStatus,
+)
 from ralph.assets.admin import (
     MaintenanceRecordInline,
     ComplianceRecordInline,
@@ -68,6 +73,8 @@ class FleetOperationsView(RalphDetailViewAdmin):
         "odometer_km",
         "next_service_date",
         "next_service_odometer",
+        "last_telematics_at",
+        "last_known_speed_kmh",
     ]
 
 
@@ -81,6 +88,8 @@ class FleetComplianceView(RalphDetailViewAdmin):
         "registration_expiry",
         "inspection_due_date",
         "insurance_expiry",
+        "roadworthiness_certificate_expiry",
+        "insurance_provider",
     ]
 
 
@@ -94,7 +103,12 @@ class FleetDataView(RalphDetailViewAdmin):
         "odometer_km",
         "hours_used",
         "fuel_type",
+        "fuel_level_percent",
         "last_service_date",
+        "last_telematics_status",
+        "last_known_latitude",
+        "last_known_longitude",
+        "last_known_heading_deg",
     ]
 
 
@@ -112,17 +126,27 @@ class FleetAssetAdmin(
         "license_plate",
         "vin",
         "vehicle_type",
+        "make",
+        "vehicle_model",
         "fuel_type",
-        "model",
+        "registration_expiry",
+        "insurance_expiry",
+        "last_telematics_at",
         "owner",
         "user",
         "assigned_location",
         "region",
         "service_env",
+        "model",
+        "maintenance_status",
+        "compliance_status",
     )
     search_fields = (
         "license_plate",
         "vin",
+        "registration_number",
+        "telematics_device_id",
+        "fuel_card_identifier",
         "barcode",
         "hostname",
         "model__name",
@@ -131,6 +155,8 @@ class FleetAssetAdmin(
         "status",
         "vehicle_type",
         "fuel_type",
+        "registration_expiry",
+        "insurance_expiry",
         "region",
         "owner",
         "user",
@@ -154,6 +180,7 @@ class FleetAssetAdmin(
         "budget_info",
         "property_of",
     )
+    readonly_fields = ("maintenance_status", "compliance_status")
     change_views = [
         FleetOperationsView,
         FleetComplianceView,
@@ -163,6 +190,33 @@ class FleetAssetAdmin(
     def __init__(self, *args, **kwargs):
         self.change_views = list(self.change_views or [])
         super().__init__(*args, **kwargs)
+
+    @admin.display(description=_("Maintenance"))
+    def maintenance_status(self, obj):
+        open_statuses = [
+            MaintenanceRecordStatus.open.id,
+            MaintenanceRecordStatus.in_progress.id,
+        ]
+        open_records = obj.maintenance_records.filter(status__in=open_statuses)
+        open_count = open_records.count()
+        overdue_count = open_records.filter(
+            expected_completion__isnull=False,
+            expected_completion__lt=timezone.now().date(),
+        ).count()
+        return _("{open} open / {overdue} overdue").format(
+            open=open_count,
+            overdue=overdue_count,
+        )
+
+    @admin.display(description=_("Compliance"))
+    def compliance_status(self, obj):
+        records = obj.compliance_records.all()
+        due_soon = records.filter(status=ComplianceRecordStatus.due_soon.id).count()
+        overdue = records.filter(status=ComplianceRecordStatus.overdue.id).count()
+        return _("{soon} due soon / {overdue} overdue").format(
+            soon=due_soon,
+            overdue=overdue,
+        )
     fieldsets = (
         (
             _("Identification"),
@@ -175,21 +229,67 @@ class FleetAssetAdmin(
                     "sn",
                     "model",
                     "vehicle_type",
-                    "fuel_type",
+                    "make",
+                    "vehicle_model",
+                    "manufacture_year",
+                    "body_style",
+                    "drivetrain",
+                    "color",
                 )
             },
         ),
         (
-            _("Utilization"),
+            _("Compliance & Documentation"),
+            {
+                "fields": (
+                    "registration_number",
+                    "registration_state",
+                    "registration_authority",
+                    "registration_expiry",
+                    "inspection_due_date",
+                    "insurance_policy_number",
+                    "insurance_provider",
+                    "insurance_expiry",
+                    "roadworthiness_certificate_expiry",
+                    "emissions_class",
+                    "fuel_card_identifier",
+                )
+            },
+        ),
+        (
+            _("Telematics & Location"),
             {
                 "fields": (
                     "status",
+                    "last_status_change",
                     "odometer_km",
                     "hours_used",
+                    "engine_hours",
                     "last_service_date",
                     "next_service_date",
                     "next_service_odometer",
-                    "last_status_change",
+                    "last_telematics_at",
+                    "telematics_device_id",
+                    "telematics_provider",
+                    "last_telematics_status",
+                    "last_known_latitude",
+                    "last_known_longitude",
+                    "last_known_heading_deg",
+                    "last_known_speed_kmh",
+                    "fuel_level_percent",
+                    "maintenance_status",
+                    "compliance_status",
+                )
+            },
+        ),
+        (
+            _("Specifications"),
+            {
+                "fields": (
+                    "fuel_type",
+                    "seating_capacity",
+                    "gross_vehicle_weight_rating_kg",
+                    "emergency_equipment_inventory",
                 )
             },
         ),
