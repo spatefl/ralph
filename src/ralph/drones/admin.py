@@ -7,6 +7,9 @@ from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
 from ralph.admin.sites import ralph_site
+from ralph.attachments.admin import AttachmentsMixin
+from ralph.assets.models.choices import ObjectModelType
+from ralph.assets.admin import MaintenanceRecordInline
 from ralph.drones.forms import (
     DroneAssignmentForm,
     DroneCertificationForm,
@@ -15,6 +18,13 @@ from ralph.drones.forms import (
     DroneUnassignmentForm,
 )
 from ralph.drones.models import (
+    DroneMissionProfile,
+    DroneAsset,
+    SurveyDroneAsset,
+    SurveillanceDroneAsset,
+    DeliveryDroneAsset,
+    InspectionDroneAsset,
+    TrainingDroneAsset,
     Drone,
     DroneAssignment,
     DroneFlightLog,
@@ -22,6 +32,170 @@ from ralph.drones.models import (
     DroneStatus,
     DroneStatusLog,
 )
+from ralph.lib.custom_fields.admin import CustomFieldValueAdminMixin
+from ralph.lib.mixins.forms import AssetFormMixin, PriceFormMixin
+from ralph.lib.transitions.admin import TransitionAdminMixin
+
+
+class DroneAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
+    MODEL_TYPE = ObjectModelType.drone
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        service_env_field = self.fields.get("service_env")
+        if service_env_field:
+            service_env_field.required = False
+
+
+class DroneAssetAdmin(
+    AttachmentsMixin,
+    TransitionAdminMixin,
+    CustomFieldValueAdminMixin,
+    RalphAdmin,
+):
+    show_transition_history = True
+    form = DroneAssetAdminForm
+    inlines = [MaintenanceRecordInline]
+    list_display = (
+        "status",
+        "identifier",
+        "serial_number",
+        "drone_type",
+        "mission_profile",
+        "model",
+        "owner",
+        "user",
+        "assigned_team",
+        "assigned_location",
+        "region",
+        "service_env",
+    )
+    search_fields = (
+        "identifier",
+        "serial_number",
+        "barcode",
+        "hostname",
+        "model__name",
+    )
+    list_filter = (
+        "status",
+        "drone_type",
+        "mission_profile",
+        "assigned_team",
+        "region",
+        "owner",
+        "user",
+        "service_env",
+    )
+    list_select_related = (
+        "model",
+        "owner",
+        "user",
+        "assigned_team",
+        "region",
+        "service_env",
+        "service_env__service",
+        "service_env__environment",
+    )
+    raw_id_fields = (
+        "model",
+        "owner",
+        "user",
+        "assigned_team",
+        "region",
+        "service_env",
+        "budget_info",
+        "property_of",
+    )
+    fieldsets = (
+        (
+            _("Identification"),
+            {
+                "fields": (
+                    "hostname",
+                    "identifier",
+                    "serial_number",
+                    "barcode",
+                    "sn",
+                    "model",
+                    "drone_type",
+                    "mission_profile",
+                    "firmware_version",
+                    "last_firmware_update",
+                )
+            },
+        ),
+        (
+            _("Operations"),
+            {
+                "fields": (
+                    "status",
+                    "last_status_change",
+                    "current_mission",
+                    "battery_capacity_mah",
+                    "battery_health_percent",
+                    "flight_time_limit_minutes",
+                    "total_flight_hours",
+                    "flight_count",
+                )
+            },
+        ),
+        (
+            _("Assignments"),
+            {
+                "fields": (
+                    "owner",
+                    "user",
+                    "assigned_team",
+                    "assigned_location",
+                    "last_known_latitude",
+                    "last_known_longitude",
+                    "last_known_altitude_m",
+                    "region",
+                    "service_env",
+                )
+            },
+        ),
+        (
+            _("Maintenance"),
+            {
+                "fields": (
+                    "last_service_date",
+                    "next_maintenance_date",
+                    "next_maintenance_flight_hours",
+                )
+            },
+        ),
+        (
+            _("Financial"),
+            {
+                "fields": (
+                    "price",
+                    "currency",
+                    "invoice_no",
+                    "invoice_date",
+                    "provider",
+                    "order_no",
+                    "budget_info",
+                    "property_of",
+                )
+            },
+        ),
+        (_("Additional"), {"fields": ("remarks", "tags")}),
+    )
+
+
+class DroneAssetMissionAdmin(DroneAssetAdmin):
+    mission_profile_filter = None
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        profile = self.mission_profile_filter or getattr(
+            self.model, "mission_profile_filter", None
+        )
+        if not profile:
+            return queryset
+        return queryset.filter(mission_profile=profile)
 
 
 class DroneAssignmentInline(RalphTabularInline):
@@ -421,6 +595,26 @@ class DroneStatusLogAdmin(RalphAdmin):
     readonly_fields = ("created", "modified")
 
 
+class SurveyDroneAssetAdmin(DroneAssetMissionAdmin):
+    mission_profile_filter = DroneMissionProfile.SURVEY
+
+
+class SurveillanceDroneAssetAdmin(DroneAssetMissionAdmin):
+    mission_profile_filter = DroneMissionProfile.SURVEILLANCE
+
+
+class DeliveryDroneAssetAdmin(DroneAssetMissionAdmin):
+    mission_profile_filter = DroneMissionProfile.DELIVERY
+
+
+class InspectionDroneAssetAdmin(DroneAssetMissionAdmin):
+    mission_profile_filter = DroneMissionProfile.INSPECTION
+
+
+class TrainingDroneAssetAdmin(DroneAssetMissionAdmin):
+    mission_profile_filter = DroneMissionProfile.TRAINING
+
+
 def _register(model, admin_class):
     try:
         admin.site.unregister(model)
@@ -433,6 +627,12 @@ def _register(model, admin_class):
 
 
 for _model, _admin in [
+    (DroneAsset, DroneAssetAdmin),
+    (SurveyDroneAsset, SurveyDroneAssetAdmin),
+    (SurveillanceDroneAsset, SurveillanceDroneAssetAdmin),
+    (DeliveryDroneAsset, DeliveryDroneAssetAdmin),
+    (InspectionDroneAsset, InspectionDroneAssetAdmin),
+    (TrainingDroneAsset, TrainingDroneAssetAdmin),
     (Drone, DroneAdmin),
     (DroneAssignment, DroneAssignmentAdmin),
     (DroneFlightLog, DroneFlightLogAdmin),

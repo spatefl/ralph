@@ -28,6 +28,10 @@ class ObjectModelType(Choices):
     data_center = _("data center")
     part = _("part")
     all = _("all")
+    fleet = _("fleet")
+    drone = _("drone")
+    sensor = _("sensor")
+    heavy_equipment = _("heavy equipment")
 
 
 class ModelVisualizationLayout(Choices):

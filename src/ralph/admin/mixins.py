@@ -224,7 +224,7 @@ class DashboardChangelistMixin(object):
     def get_list_filter(self, request):
         from ralph.dashboards.admin_filters import ByGraphFilter
 
-        filters = super().get_list_filter(request) or []
+        filters = list(super().get_list_filter(request) or [])
         is_graph_model = getattr(self.model, "_allow_in_dashboard", False)
         if is_graph_model and ByGraphFilter not in filters:
             filters.append(ByGraphFilter)

@@ -11,6 +11,7 @@ from ralph.assets.models.assets import (
     Asset,
     AssetHolder,
     AssetModel,
+    MaintenanceRecord,
     BudgetInfo,
     BusinessSegment,
     Category,
@@ -183,6 +184,69 @@ class ServiceBaseObjects(RalphDetailView):
         return r"^{}/{}/(?P<pk>[\w-]+)/{}/$".format(
             model._meta.app_label, model._meta.model_name, cls.url_name
         )
+
+
+@register(MaintenanceRecord)
+class MaintenanceRecordAdmin(RalphAdmin):
+    list_display = (
+        "base_object",
+        "record_type_display",
+        "status_display",
+        "opened_at",
+        "expected_completion",
+        "closed_at",
+        "out_of_service",
+    )
+    list_filter = ("record_type", "status", "out_of_service")
+    search_fields = (
+        "base_object__hostname",
+        "base_object__barcode",
+        "description",
+        "resolution",
+    )
+    raw_id_fields = ("base_object", "reported_by")
+    readonly_fields = ("created", "modified")
+
+    def record_type_display(self, instance):
+        return instance.get_record_type_display()
+
+    record_type_display.short_description = _("Type")
+
+    def status_display(self, instance):
+        return instance.get_status_display()
+
+    status_display.short_description = _("Status")
+
+
+class MaintenanceRecordInline(RalphTabularInline):
+    model = MaintenanceRecord
+    fk_name = "base_object"
+    extra = 0
+    fields = (
+        "record_type_display",
+        "status_display",
+        "opened_at",
+        "expected_completion",
+        "closed_at",
+        "reported_by",
+        "performed_by",
+        "cost",
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def record_type_display(self, instance):
+        return instance.get_record_type_display()
+
+    record_type_display.short_description = _("Type")
+
+    def status_display(self, instance):
+        return instance.get_status_display()
+
+    status_display.short_description = _("Status")
 
 
 @register(ManufacturerKind)

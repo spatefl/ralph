@@ -90,6 +90,7 @@ INSTALLED_APPS = (
     "ralph.fleet",
     "ralph.drones",
     "ralph.sensors",
+    "ralph.heavy_equipment",
     "ralph.configuration_management",
     "ralph.dashboards",
     "ralph.data_center",

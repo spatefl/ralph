@@ -7,6 +7,9 @@ from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
 from ralph.admin.sites import ralph_site
+from ralph.attachments.admin import AttachmentsMixin
+from ralph.assets.models.choices import ObjectModelType
+from ralph.assets.admin import MaintenanceRecordInline
 from ralph.sensors.forms import (
     SensorAssignmentForm,
     SensorFaultStatusForm,
@@ -15,6 +18,13 @@ from ralph.sensors.forms import (
     SensorUnassignmentForm,
 )
 from ralph.sensors.models import (
+    SensorCategory,
+    SensorAsset,
+    EnvironmentalSensorAsset,
+    SecuritySensorAsset,
+    InfrastructureSensorAsset,
+    LogisticsSensorAsset,
+    WearableSensorAsset,
     Sensor,
     SensorAssignment,
     SensorMaintenanceLog,
@@ -22,6 +32,164 @@ from ralph.sensors.models import (
     SensorStatusLog,
     SensorUptimeLog,
 )
+from ralph.lib.custom_fields.admin import CustomFieldValueAdminMixin
+from ralph.lib.mixins.forms import AssetFormMixin, PriceFormMixin
+from ralph.lib.transitions.admin import TransitionAdminMixin
+
+
+class SensorAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
+    MODEL_TYPE = ObjectModelType.sensor
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        service_env_field = self.fields.get("service_env")
+        if service_env_field:
+            service_env_field.required = False
+
+
+class SensorAssetAdmin(
+    AttachmentsMixin,
+    TransitionAdminMixin,
+    CustomFieldValueAdminMixin,
+    RalphAdmin,
+):
+    show_transition_history = True
+    form = SensorAssetAdminForm
+    inlines = [MaintenanceRecordInline]
+    list_display = (
+        "status",
+        "sensor_type",
+        "category",
+        "serial_number",
+        "external_identifier",
+        "model",
+        "owner",
+        "user",
+        "location_description",
+        "region",
+        "service_env",
+    )
+    search_fields = (
+        "serial_number",
+        "external_identifier",
+        "barcode",
+        "hostname",
+        "sensor_type",
+        "category",
+        "model__name",
+    )
+    list_filter = (
+        "status",
+        "sensor_type",
+        "category",
+        "region",
+        "owner",
+        "user",
+        "service_env",
+    )
+    list_select_related = (
+        "model",
+        "owner",
+        "user",
+        "region",
+        "service_env",
+        "service_env__service",
+        "service_env__environment",
+    )
+    raw_id_fields = (
+        "model",
+        "owner",
+        "user",
+        "region",
+        "service_env",
+        "budget_info",
+        "property_of",
+    )
+    fieldsets = (
+        (
+            _("Identification"),
+            {
+                "fields": (
+                    "hostname",
+                    "sensor_type",
+                    "category",
+                    "serial_number",
+                    "external_identifier",
+                    "barcode",
+                    "sn",
+                    "model",
+                )
+            },
+        ),
+        (
+            _("Status"),
+            {
+                "fields": (
+                    "status",
+                    "last_status_change",
+                    "battery_level_percent",
+                    "last_online_at",
+                    "total_uptime_hours",
+                    "total_downtime_hours",
+                    "last_calibrated",
+                    "next_calibration_due",
+                    "calibration_interval_days",
+                )
+            },
+        ),
+        (
+            _("Assignments"),
+            {
+                "fields": (
+                    "owner",
+                    "user",
+                    "location_description",
+                    "latitude",
+                    "longitude",
+                    "region",
+                    "service_env",
+                )
+            },
+        ),
+        (
+            _("Financial"),
+            {
+                "fields": (
+                    "price",
+                    "currency",
+                    "invoice_no",
+                    "invoice_date",
+                    "provider",
+                    "order_no",
+                    "budget_info",
+                    "property_of",
+                )
+            },
+        ),
+        (
+            _("Integration"),
+            {
+                "fields": (
+                    "external_feed_reference",
+                    "remarks",
+                    "tags",
+                )
+            },
+        ),
+    )
+
+
+class SensorAssetCategoryAdmin(SensorAssetAdmin):
+    sensor_category_filter = None
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        category = self.sensor_category_filter or getattr(
+            self.model, "sensor_category_filter", None
+        )
+        if not category:
+            return queryset
+        return queryset.filter(category=category)
 
 
 class SensorAssignmentInline(RalphTabularInline):
@@ -404,6 +572,26 @@ class SensorStatusLogAdmin(RalphAdmin):
     readonly_fields = ("created", "modified")
 
 
+class EnvironmentalSensorAssetAdmin(SensorAssetCategoryAdmin):
+    sensor_category_filter = SensorCategory.environmental.id
+
+
+class SecuritySensorAssetAdmin(SensorAssetCategoryAdmin):
+    sensor_category_filter = SensorCategory.security.id
+
+
+class InfrastructureSensorAssetAdmin(SensorAssetCategoryAdmin):
+    sensor_category_filter = SensorCategory.infrastructure.id
+
+
+class LogisticsSensorAssetAdmin(SensorAssetCategoryAdmin):
+    sensor_category_filter = SensorCategory.logistics.id
+
+
+class WearableSensorAssetAdmin(SensorAssetCategoryAdmin):
+    sensor_category_filter = SensorCategory.wearable.id
+
+
 def _register(model, admin_class):
     try:
         admin.site.unregister(model)
@@ -416,6 +604,12 @@ def _register(model, admin_class):
 
 
 for _model, _admin in [
+    (SensorAsset, SensorAssetAdmin),
+    (EnvironmentalSensorAsset, EnvironmentalSensorAssetAdmin),
+    (SecuritySensorAsset, SecuritySensorAssetAdmin),
+    (InfrastructureSensorAsset, InfrastructureSensorAssetAdmin),
+    (LogisticsSensorAsset, LogisticsSensorAssetAdmin),
+    (WearableSensorAsset, WearableSensorAssetAdmin),
     (Sensor, SensorAdmin),
     (SensorAssignment, SensorAssignmentAdmin),
     (SensorUptimeLog, SensorUptimeLogAdmin),

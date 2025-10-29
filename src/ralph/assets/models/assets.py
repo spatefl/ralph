@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 import datetime
 import logging
+from datetime import timedelta
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from mptt.models import MPTTModel, TreeForeignKey
 
@@ -14,6 +16,7 @@ from ralph.accounts.models import Team
 from ralph.admin.autocomplete import AutocompleteTooltipMixin
 from ralph.assets.models.base import BaseObject
 from ralph.assets.models.choices import ModelVisualizationLayout, ObjectModelType
+from ralph.lib.dj_choices import Choices
 from ralph.lib.custom_fields.models import CustomFieldMeta, WithCustomFieldsMixin
 from ralph.lib.mixins.fields import NullableCharField, NullableCharFieldWithAutoStrip
 from ralph.lib.mixins.models import (
@@ -529,3 +532,200 @@ class Asset(AdminAbsoluteUrlMixin, PriceMixin, BaseObject):
         if not self.buyout_date:
             self.buyout_date = self.calculate_buyout_date()
         return super(Asset, self).save(*args, **kwargs)
+
+
+class MaintenanceRecordType(Choices):
+    _ = Choices.Choice
+
+    maintenance = _("maintenance")
+    repair = _("repair")
+    refuel = _("refuel")
+    calibration = _("calibration")
+    inspection = _("inspection")
+    other = _("other")
+
+
+class MaintenanceRecordStatus(Choices):
+    _ = Choices.Choice
+
+    open = _("open")
+    in_progress = _("in progress")
+    completed = _("completed")
+
+
+class MaintenanceRecordQuerySet(models.QuerySet):
+    def open(self):
+        return self.filter(
+            status__in=[
+                MaintenanceRecordStatus.open.id,
+                MaintenanceRecordStatus.in_progress.id,
+            ]
+        )
+
+    def overdue(self):
+        today = timezone.now().date()
+        return self.open().filter(
+            expected_completion__isnull=False,
+            expected_completion__lt=today,
+        )
+
+    def due_within(self, days):
+        deadline = timezone.now().date() + timedelta(days=days)
+        return self.open().filter(
+            expected_completion__isnull=False,
+            expected_completion__lte=deadline,
+        )
+
+
+class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    base_object = models.ForeignKey(
+        BaseObject,
+        related_name="maintenance_records",
+        on_delete=models.CASCADE,
+    )
+    record_type = models.PositiveIntegerField(
+        choices=MaintenanceRecordType(),
+        default=MaintenanceRecordType.maintenance.id,
+    )
+    status = models.PositiveIntegerField(
+        choices=MaintenanceRecordStatus(),
+        default=MaintenanceRecordStatus.open.id,
+    )
+    title = models.CharField(max_length=128, blank=True)
+    description = models.TextField(blank=True)
+    resolution = models.TextField(blank=True)
+    opened_at = models.DateTimeField(default=timezone.now)
+    expected_completion = models.DateField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    out_of_service = models.BooleanField(default=False)
+    reported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="reported_maintenance_records",
+        on_delete=models.SET_NULL,
+    )
+    performed_by = models.CharField(max_length=128, blank=True)
+    extra_data = models.JSONField(default=dict, blank=True)
+
+    objects = MaintenanceRecordQuerySet.as_manager()
+
+    class Meta:
+        ordering = ("-opened_at", "-pk")
+        verbose_name = _("Maintenance record")
+        verbose_name_plural = _("Maintenance records")
+
+    def __str__(self):
+        return "{} ({})".format(
+            self.get_record_type_display(), self.base_object or "-"
+        )
+
+    @classmethod
+    def start_record(
+        cls,
+        base_object,
+        record_type,
+        *,
+        status=None,
+        description="",
+        expected_completion=None,
+        out_of_service=False,
+        reported_by=None,
+        performed_by=None,
+        extra_data=None,
+    ):
+        status = status or MaintenanceRecordStatus.open.id
+        return cls.objects.create(
+            base_object=base_object,
+            record_type=record_type,
+            status=status,
+            description=description or "",
+            expected_completion=expected_completion,
+            out_of_service=out_of_service,
+            reported_by=reported_by,
+            performed_by=performed_by or "",
+            extra_data=extra_data or {},
+        )
+
+    @classmethod
+    def close_latest(
+        cls,
+        base_object,
+        record_type=None,
+        *,
+        resolution=None,
+        extra_data=None,
+        cost=None,
+        closed_at=None,
+        performed_by=None,
+    ):
+        filters = {
+            "base_object": base_object,
+            "status__in": [
+                MaintenanceRecordStatus.open.id,
+                MaintenanceRecordStatus.in_progress.id,
+            ],
+        }
+        if record_type is not None:
+            filters["record_type"] = record_type
+
+        record = (
+            cls.objects.filter(**filters).order_by("-opened_at", "-pk").first()
+        )
+        if not record:
+            return None
+        record.status = MaintenanceRecordStatus.completed.id
+        record.closed_at = closed_at or timezone.now()
+        if resolution:
+            record.resolution = resolution
+        if cost is not None:
+            record.cost = cost
+        if performed_by is not None:
+            record.performed_by = performed_by
+        if extra_data:
+            combined = record.extra_data.copy()
+            combined.update(extra_data)
+            record.extra_data = combined
+        record.save()
+        return record
+
+    @classmethod
+    def close_open_records(
+        cls,
+        base_object,
+        record_type=None,
+        resolution=None,
+        performed_by=None,
+    ):
+        filters = {
+            "base_object": base_object,
+            "status__in": [
+                MaintenanceRecordStatus.open.id,
+                MaintenanceRecordStatus.in_progress.id,
+            ],
+        }
+        if record_type is not None:
+            filters["record_type"] = record_type
+        now = timezone.now()
+        for record in cls.objects.filter(**filters).order_by("-opened_at"):
+            record.status = MaintenanceRecordStatus.completed.id
+            record.closed_at = now
+            if resolution and not record.resolution:
+                record.resolution = resolution
+            if performed_by is not None:
+                record.performed_by = performed_by
+            record.save()
+        return True
+
+    def is_overdue(self):
+        if self.status == MaintenanceRecordStatus.completed.id:
+            return False
+        if not self.expected_completion:
+            return False
+        return self.expected_completion < timezone.now().date()

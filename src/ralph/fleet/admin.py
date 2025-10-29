@@ -7,6 +7,19 @@ from django.utils.translation import gettext_lazy as _
 
 from ralph.admin.mixins import RalphAdmin, RalphTabularInline
 from ralph.admin.sites import ralph_site
+from ralph.attachments.admin import AttachmentsMixin
+from ralph.assets.models.choices import ObjectModelType
+from ralph.assets.admin import MaintenanceRecordInline
+from ralph.fleet.models import (
+    FLEET_GROUP_MAP,
+    FleetAsset,
+    FleetAssetFunctionalGroup,
+    FleetLightVehicle,
+    FleetTruckHauler,
+    FleetUtilityVehicle,
+    FleetEmergencyVehicle,
+    FleetPassengerVehicle,
+)
 from ralph.fleet.forms import (
     VehicleAssignmentForm,
     VehicleMaintenanceStatusForm,
@@ -21,6 +34,152 @@ from ralph.fleet.models import (
     VehicleStatusLog,
     VehicleUsageLog,
 )
+from ralph.lib.custom_fields.admin import CustomFieldValueAdminMixin
+from ralph.lib.mixins.forms import AssetFormMixin, PriceFormMixin
+from ralph.lib.transitions.admin import TransitionAdminMixin
+
+
+class FleetAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
+    MODEL_TYPE = ObjectModelType.fleet
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        service_env_field = self.fields.get("service_env")
+        if service_env_field:
+            service_env_field.required = False
+
+
+class FleetAssetAdmin(
+    AttachmentsMixin,
+    TransitionAdminMixin,
+    CustomFieldValueAdminMixin,
+    RalphAdmin,
+):
+    show_transition_history = True
+    form = FleetAssetAdminForm
+    inlines = [MaintenanceRecordInline]
+    list_display = (
+        "status",
+        "license_plate",
+        "vin",
+        "vehicle_type",
+        "fuel_type",
+        "model",
+        "owner",
+        "user",
+        "assigned_location",
+        "region",
+        "service_env",
+    )
+    search_fields = (
+        "license_plate",
+        "vin",
+        "barcode",
+        "hostname",
+        "model__name",
+    )
+    list_filter = (
+        "status",
+        "vehicle_type",
+        "fuel_type",
+        "region",
+        "owner",
+        "user",
+        "service_env",
+    )
+    list_select_related = (
+        "model",
+        "owner",
+        "user",
+        "region",
+        "service_env",
+        "service_env__service",
+        "service_env__environment",
+    )
+    raw_id_fields = (
+        "model",
+        "owner",
+        "user",
+        "region",
+        "service_env",
+        "budget_info",
+        "property_of",
+    )
+    fieldsets = (
+        (
+            _("Identification"),
+            {
+                "fields": (
+                    "hostname",
+                    "license_plate",
+                    "vin",
+                    "barcode",
+                    "sn",
+                    "model",
+                    "vehicle_type",
+                    "fuel_type",
+                )
+            },
+        ),
+        (
+            _("Utilization"),
+            {
+                "fields": (
+                    "status",
+                    "odometer_km",
+                    "hours_used",
+                    "last_service_date",
+                    "next_service_date",
+                    "next_service_odometer",
+                    "last_status_change",
+                )
+            },
+        ),
+        (
+            _("Assignments"),
+            {
+                "fields": (
+                    "owner",
+                    "user",
+                    "assigned_location",
+                    "region",
+                    "service_env",
+                )
+            },
+        ),
+        (
+            _("Financial"),
+            {
+                "fields": (
+                    "price",
+                    "currency",
+                    "invoice_no",
+                    "invoice_date",
+                    "provider",
+                    "order_no",
+                    "budget_info",
+                    "property_of",
+                )
+            },
+        ),
+        (_("Additional"), {"fields": ("remarks", "tags")}),
+    )
+
+
+class FleetAssetGroupAdmin(FleetAssetAdmin):
+    functional_group_filter = None
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        group = self.functional_group_filter or getattr(
+            self.model, "functional_group_filter", None
+        )
+        if not group:
+            return queryset
+        vehicle_values = FLEET_GROUP_MAP.get(group, set())
+        if not vehicle_values:
+            return queryset.none()
+        return queryset.filter(vehicle_type__in=vehicle_values)
 
 
 class VehicleAssignmentInline(RalphTabularInline):
@@ -385,6 +544,26 @@ class VehicleStatusLogAdmin(RalphAdmin):
     readonly_fields = ("created", "modified")
 
 
+class FleetLightVehicleAdmin(FleetAssetGroupAdmin):
+    functional_group_filter = FleetAssetFunctionalGroup.light.id
+
+
+class FleetTruckHaulerAdmin(FleetAssetGroupAdmin):
+    functional_group_filter = FleetAssetFunctionalGroup.trucks.id
+
+
+class FleetUtilityVehicleAdmin(FleetAssetGroupAdmin):
+    functional_group_filter = FleetAssetFunctionalGroup.utility.id
+
+
+class FleetEmergencyVehicleAdmin(FleetAssetGroupAdmin):
+    functional_group_filter = FleetAssetFunctionalGroup.emergency.id
+
+
+class FleetPassengerVehicleAdmin(FleetAssetGroupAdmin):
+    functional_group_filter = FleetAssetFunctionalGroup.passenger.id
+
+
 def _register(model, admin_class):
     try:
         admin.site.unregister(model)
@@ -397,6 +576,12 @@ def _register(model, admin_class):
 
 
 for _model, _admin in [
+    (FleetAsset, FleetAssetAdmin),
+    (FleetLightVehicle, FleetLightVehicleAdmin),
+    (FleetTruckHauler, FleetTruckHaulerAdmin),
+    (FleetUtilityVehicle, FleetUtilityVehicleAdmin),
+    (FleetEmergencyVehicle, FleetEmergencyVehicleAdmin),
+    (FleetPassengerVehicle, FleetPassengerVehicleAdmin),
     (Vehicle, VehicleAdmin),
     (VehicleAssignment, VehicleAssignmentAdmin),
     (VehicleUsageLog, VehicleUsageLogAdmin),

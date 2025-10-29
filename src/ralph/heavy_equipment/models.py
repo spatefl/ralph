@@ -1,0 +1,864 @@
+from collections import defaultdict
+from decimal import Decimal
+
+from django import forms
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import models
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+
+from ralph.accounts.models import Regionalizable
+from ralph.assets.models.assets import (
+    Asset,
+    MaintenanceRecord,
+    MaintenanceRecordStatus,
+    MaintenanceRecordType,
+)
+from ralph.assets.notifications import AssetEventType, notify_asset_event
+from ralph.lib.dj_choices import Choices
+from ralph.lib.mixins.fields import NullableCharField
+from ralph.lib.transitions.decorators import transition_action
+from ralph.lib.transitions.fields import TransitionField
+
+
+def _history_entry(kwargs, instance):
+    history_kwargs = kwargs.get("history_kwargs")
+    if history_kwargs is None:
+        history_kwargs = kwargs["history_kwargs"] = defaultdict(dict)
+    history_kwargs.setdefault(instance.pk, {})
+    return history_kwargs[instance.pk]
+
+
+class HeavyEquipmentType(models.TextChoices):
+    GENERATOR = "generator", _("Generator")
+    TRAILER = "trailer", _("Trailer")
+    EXCAVATOR = "excavator", _("Excavator")
+    BULLDOZER = "bulldozer", _("Bulldozer")
+    LOADER = "loader", _("Loader / Skid steer")
+    PUMP = "pump", _("Pump")
+    TANK = "tank", _("Tank / Water system")
+    CRANE = "crane", _("Crane")
+    FORKLIFT = "forklift", _("Forklift or telehandler")
+    LIGHT_TOWER = "light_tower", _("Light tower")
+    OTHER = "other", _("Other")
+
+
+class HeavyEquipmentAssetStatus(Choices):
+    _ = Choices.Choice
+
+    new = _("new")
+    standby = _("standby")
+    active = _("active")
+    under_maintenance = _("under maintenance")
+    damaged = _("damaged")
+    retired = _("retired")
+
+
+class HeavyEquipmentFunctionalGroup(Choices):
+    _ = Choices.Choice
+
+    debris_removal = _("Debris removal equipment")
+    power_generation = _("Power generation & lighting")
+    water_management = _("Water & fluid management")
+    material_handling = _("Material handling & logistics")
+    other = _("Miscellaneous heavy equipment")
+
+
+HEAVY_EQUIPMENT_GROUP_MAP = {
+    HeavyEquipmentFunctionalGroup.debris_removal.id: {
+        HeavyEquipmentType.EXCAVATOR,
+        HeavyEquipmentType.BULLDOZER,
+        HeavyEquipmentType.LOADER,
+    },
+    HeavyEquipmentFunctionalGroup.power_generation.id: {
+        HeavyEquipmentType.GENERATOR,
+        HeavyEquipmentType.LIGHT_TOWER,
+    },
+    HeavyEquipmentFunctionalGroup.water_management.id: {
+        HeavyEquipmentType.PUMP,
+        HeavyEquipmentType.TANK,
+        HeavyEquipmentType.TRAILER,
+    },
+    HeavyEquipmentFunctionalGroup.material_handling.id: {
+        HeavyEquipmentType.CRANE,
+        HeavyEquipmentType.FORKLIFT,
+    },
+    HeavyEquipmentFunctionalGroup.other.id: {
+        HeavyEquipmentType.OTHER,
+    },
+}
+
+
+class HeavyEquipmentGroupManager(models.Manager):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return self.model.filtered_queryset(queryset)
+
+
+class HeavyEquipmentAsset(Regionalizable, Asset):
+    _allow_in_dashboard = True
+
+    equipment_identifier = NullableCharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        verbose_name=_("equipment identifier"),
+    )
+    equipment_type = models.CharField(
+        max_length=32,
+        choices=HeavyEquipmentType.choices,
+        default=HeavyEquipmentType.OTHER,
+        verbose_name=_("equipment type"),
+    )
+    manufacturer = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("manufacturer"),
+    )
+    model_name = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("model"),
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="heavy_equipment_assets_as_owner",
+        on_delete=models.CASCADE,
+        verbose_name=_("asset owner"),
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="heavy_equipment_assets_as_operator",
+        on_delete=models.CASCADE,
+        verbose_name=_("assigned operator"),
+    )
+    assigned_location = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("assigned location"),
+    )
+    fuel_capacity_liters = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("fuel capacity (L)"),
+    )
+    fuel_level_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("fuel level (%)"),
+    )
+    water_tank_capacity_liters = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("water tank capacity (L)"),
+    )
+    water_level_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("water level (%)"),
+    )
+    battery_capacity_kwh = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("battery capacity (kWh)"),
+    )
+    battery_level_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("battery level (%)"),
+    )
+    fuel_level_threshold_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("fuel level threshold (%)"),
+    )
+    water_level_threshold_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("water level threshold (%)"),
+    )
+    battery_level_threshold_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_("battery level threshold (%)"),
+    )
+    hours_used = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        default=0,
+        verbose_name=_("hours used"),
+    )
+    odometer_km = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("odometer (km)"),
+    )
+    maintenance_interval_hours = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("maintenance interval (hours)"),
+    )
+    maintenance_interval_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("maintenance interval (days)"),
+    )
+    last_service_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("last service date"),
+    )
+    next_service_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("next service date"),
+    )
+    next_service_hours = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("next service hours"),
+    )
+    status = TransitionField(
+        default=HeavyEquipmentAssetStatus.new.id,
+        choices=HeavyEquipmentAssetStatus(),
+    )
+    last_status_change = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("last status change"),
+    )
+
+    class Meta:
+        verbose_name = _("Heavy equipment asset")
+        verbose_name_plural = _("Heavy equipment assets")
+
+    def __str__(self):
+        identifier = self.equipment_identifier or self.hostname or self.barcode or "-"
+        return "{} ({})".format(identifier, self.get_equipment_type_display())
+
+    def fuel_threshold(self):
+        return (
+            self.fuel_level_threshold_percent
+            if self.fuel_level_threshold_percent is not None
+            else Decimal("15.00")
+        )
+
+    def water_threshold(self):
+        return (
+            self.water_level_threshold_percent
+            if self.water_level_threshold_percent is not None
+            else Decimal("20.00")
+        )
+
+    def battery_threshold(self):
+        return (
+            self.battery_level_threshold_percent
+            if self.battery_level_threshold_percent is not None
+            else Decimal("20.00")
+        )
+
+    @property
+    def functional_group(self):
+        for group, types in HEAVY_EQUIPMENT_GROUP_MAP.items():
+            if self.equipment_type in types:
+                return group
+        return HeavyEquipmentFunctionalGroup.other.id
+
+    def get_functional_group_display(self):
+        choice = HeavyEquipmentFunctionalGroup.from_id(self.functional_group)
+        return choice.desc if choice else ""
+
+    def threshold_alerts(self):
+        alerts = []
+        if self.fuel_level_percent is not None:
+            threshold = self.fuel_threshold()
+            if self.fuel_level_percent <= threshold:
+                alerts.append(
+                    {
+                        "metric": "fuel_level_percent",
+                        "value": float(self.fuel_level_percent),
+                        "threshold": float(threshold),
+                    }
+                )
+        if self.water_level_percent is not None:
+            threshold = self.water_threshold()
+            if self.water_level_percent <= threshold:
+                alerts.append(
+                    {
+                        "metric": "water_level_percent",
+                        "value": float(self.water_level_percent),
+                        "threshold": float(threshold),
+                    }
+                )
+        if self.battery_level_percent is not None:
+            threshold = self.battery_threshold()
+            if self.battery_level_percent <= threshold:
+                alerts.append(
+                    {
+                        "metric": "battery_level_percent",
+                        "value": float(self.battery_level_percent),
+                        "threshold": float(threshold),
+                    }
+                )
+        return alerts
+
+    def maintenance_alerts(self, reference_date=None):
+        reference_date = reference_date or timezone.now().date()
+        today = timezone.now().date()
+        alerts = []
+        if (
+            self.next_service_date
+            and self.next_service_date <= reference_date
+            and self.status != HeavyEquipmentAssetStatus.retired.id
+        ):
+            days_until = (self.next_service_date - today).days
+            alerts.append(
+                {
+                    "metric": "next_service_date",
+                    "value": self.next_service_date.isoformat(),
+                    "threshold": reference_date.isoformat(),
+                    "days_until_due": days_until,
+                }
+            )
+        if (
+            self.next_service_hours is not None
+            and self.hours_used is not None
+            and self.hours_used >= self.next_service_hours
+            and self.status != HeavyEquipmentAssetStatus.retired.id
+        ):
+            overage = float(self.hours_used - self.next_service_hours)
+            alerts.append(
+                {
+                    "metric": "next_service_hours",
+                    "value": float(self.hours_used),
+                    "threshold": float(self.next_service_hours),
+                    "overage": overage,
+                }
+                )
+        return alerts
+
+
+class HeavyEquipmentGroupProxyMixin:
+    functional_group_filter = None
+    objects = HeavyEquipmentGroupManager()
+
+    @classmethod
+    def filtered_queryset(cls, queryset):
+        group = cls.functional_group_filter
+        if not group:
+            return queryset
+        equipment_values = HEAVY_EQUIPMENT_GROUP_MAP.get(group, set())
+        if not equipment_values:
+            return queryset.none()
+        return queryset.filter(equipment_type__in=equipment_values)
+
+
+class HeavyEquipmentDebrisRemoval(HeavyEquipmentGroupProxyMixin, HeavyEquipmentAsset):
+    functional_group_filter = HeavyEquipmentFunctionalGroup.debris_removal.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Debris removal equipment")
+        verbose_name_plural = _("Debris removal equipment")
+
+
+class HeavyEquipmentPowerGeneration(
+    HeavyEquipmentGroupProxyMixin, HeavyEquipmentAsset
+):
+    functional_group_filter = HeavyEquipmentFunctionalGroup.power_generation.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Power generation & lighting")
+        verbose_name_plural = _("Power generation & lighting")
+
+
+class HeavyEquipmentWaterManagement(
+    HeavyEquipmentGroupProxyMixin, HeavyEquipmentAsset
+):
+    functional_group_filter = HeavyEquipmentFunctionalGroup.water_management.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Water & fluid management equipment")
+        verbose_name_plural = _("Water & fluid management equipment")
+
+
+class HeavyEquipmentMaterialHandling(
+    HeavyEquipmentGroupProxyMixin, HeavyEquipmentAsset
+):
+    functional_group_filter = HeavyEquipmentFunctionalGroup.material_handling.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Material handling equipment")
+        verbose_name_plural = _("Material handling equipment")
+    @classmethod
+    @transition_action(
+        verbose_name=_("Activate asset"),
+        form_fields={
+            "user": {
+                "field": forms.CharField(
+                    label=_("Assigned operator"),
+                    required=False,
+                ),
+                "autocomplete_field": "user",
+            },
+            "owner": {
+                "field": forms.CharField(
+                    label=_("Owner"),
+                    required=False,
+                ),
+                "autocomplete_field": "owner",
+            },
+            "assigned_location": {
+                "field": forms.CharField(
+                    label=_("Assigned location"),
+                    required=False,
+                )
+            },
+        },
+    )
+    def activate_heavy_equipment_asset(cls, instances, **kwargs):
+        user = None
+        owner = None
+        user_id = kwargs.get("user")
+        owner_id = kwargs.get("owner")
+        requester = kwargs.get("requester")
+        if user_id:
+            user = get_user_model().objects.get(pk=int(user_id))
+        if owner_id:
+            owner = get_user_model().objects.get(pk=int(owner_id))
+        location = kwargs.get("assigned_location")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            if owner is not None:
+                instance.owner = owner
+                history[_("Owner")] = str(owner)
+            if user is not None:
+                instance.user = user
+                history[_("Operator")] = str(user)
+            if location is not None:
+                instance.assigned_location = location or ""
+                if location:
+                    history[_("Location")] = location
+            instance.status = HeavyEquipmentAssetStatus.active.id
+            instance.last_status_change = timezone.now().date()
+            MaintenanceRecord.close_open_records(
+                instance,
+                resolution=_("Asset activated"),
+            )
+            notify_asset_event(
+                instance,
+                AssetEventType.STATUS_ACTIVATED,
+                payload={
+                    "assigned_user": user.pk if user else None,
+                    "owner": owner.pk if owner else None,
+                    "assigned_location": instance.assigned_location or None,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "activate_heavy_equipment_asset",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Stand down asset"),
+        form_fields={
+            "storage_location": {
+                "field": forms.CharField(
+                    label=_("Storage location"),
+                    required=False,
+                )
+            }
+        },
+    )
+    def stand_down_heavy_equipment(cls, instances, **kwargs):
+        storage_location = kwargs.get("storage_location")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            if storage_location is not None:
+                instance.assigned_location = storage_location or ""
+                if storage_location:
+                    history[_("Storage location")] = storage_location
+            instance.user = None
+            instance.status = HeavyEquipmentAssetStatus.standby.id
+            instance.last_status_change = timezone.now().date()
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Begin maintenance"),
+        form_fields={
+            "expected_completion": {
+                "field": forms.DateField(
+                    label=_("Expected completion date"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "maintenance_note": {
+                "field": forms.CharField(
+                    label=_("Maintenance note"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def start_heavy_equipment_maintenance(cls, instances, **kwargs):
+        expected = kwargs.get("expected_completion")
+        note = kwargs.get("maintenance_note")
+        requester = kwargs.get("requester")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            if expected:
+                instance.next_service_date = expected
+                history[_("Expected completion")] = expected
+            if note:
+                history[_("Note")] = note
+            instance.status = HeavyEquipmentAssetStatus.under_maintenance.id
+            instance.last_status_change = timezone.now().date()
+            record = MaintenanceRecord.start_record(
+                base_object=instance,
+                record_type=MaintenanceRecordType.maintenance.id,
+                status=MaintenanceRecordStatus.in_progress.id,
+                description=note or "",
+                expected_completion=expected,
+                out_of_service=True,
+                reported_by=requester,
+            )
+            history[_("Maintenance record")] = str(record.pk)
+            notify_asset_event(
+                instance,
+                AssetEventType.MAINTENANCE_STARTED,
+                payload={
+                    "record_id": record.pk,
+                    "expected_completion": expected.isoformat() if expected else None,
+                    "note": note or "",
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "start_heavy_equipment_maintenance",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Complete maintenance"),
+        form_fields={
+            "completed_on": {
+                "field": forms.DateField(
+                    label=_("Completed on"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "hours_used": {
+                "field": forms.DecimalField(
+                    label=_("Hours used"),
+                    required=False,
+                    max_digits=10,
+                    decimal_places=1,
+                    min_value=0,
+                )
+            },
+            "next_service_date": {
+                "field": forms.DateField(
+                    label=_("Next service date"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "next_service_hours": {
+                "field": forms.IntegerField(
+                    label=_("Next service after hours"),
+                    required=False,
+                    min_value=0,
+                )
+            },
+            "maintenance_summary": {
+                "field": forms.CharField(
+                    label=_("Maintenance summary"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def complete_heavy_equipment_maintenance(cls, instances, **kwargs):
+        completed_on = kwargs.get("completed_on") or timezone.now().date()
+        hours_used = kwargs.get("hours_used")
+        next_date = kwargs.get("next_service_date")
+        next_hours = kwargs.get("next_service_hours")
+        summary = kwargs.get("maintenance_summary")
+        requester = kwargs.get("requester")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            history[_("Completed on")] = completed_on
+            instance.last_service_date = completed_on
+            if hours_used is not None:
+                instance.hours_used = hours_used
+                history[_("Hours used")] = float(hours_used)
+            if next_date:
+                instance.next_service_date = next_date
+                history[_("Next service date")] = next_date
+            if next_hours is not None:
+                instance.next_service_hours = next_hours
+                history[_("Next service hours")] = next_hours
+            if summary:
+                history[_("Summary")] = summary
+            instance.status = HeavyEquipmentAssetStatus.active.id
+            instance.last_status_change = timezone.now().date()
+            extra = {
+                "completed_on": completed_on.isoformat(),
+                "hours_used": float(hours_used)
+                if hours_used is not None
+                else None,
+                "next_service_date": next_date.isoformat()
+                if next_date
+                else None,
+                "next_service_hours": next_hours,
+            }
+            record = MaintenanceRecord.close_latest(
+                instance,
+                record_type=MaintenanceRecordType.maintenance.id,
+                resolution=summary,
+                extra_data=extra,
+            )
+            notify_asset_event(
+                instance,
+                AssetEventType.MAINTENANCE_COMPLETED,
+                payload={
+                    "record_id": record.pk if record else None,
+                    "completed_on": completed_on.isoformat(),
+                    "summary": summary or "",
+                    "next_service_date": next_date.isoformat()
+                    if next_date
+                    else None,
+                    "next_service_hours": next_hours,
+                    "hours_used": float(hours_used)
+                    if hours_used is not None
+                    else None,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "complete_heavy_equipment_maintenance",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Report damage"),
+        form_fields={
+            "damage_note": {
+                "field": forms.CharField(
+                    label=_("Damage description"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def report_heavy_equipment_damage(cls, instances, **kwargs):
+        note = kwargs.get("damage_note")
+        requester = kwargs.get("requester")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            if note:
+                history[_("Damage note")] = note
+            instance.status = HeavyEquipmentAssetStatus.damaged.id
+            instance.last_status_change = timezone.now().date()
+            record = MaintenanceRecord.start_record(
+                base_object=instance,
+                record_type=MaintenanceRecordType.repair.id,
+                status=MaintenanceRecordStatus.open.id,
+                description=note or "",
+                out_of_service=True,
+            )
+            history[_("Maintenance record")] = str(record.pk)
+            notify_asset_event(
+                instance,
+                AssetEventType.INCIDENT_DAMAGE,
+                payload={
+                    "record_id": record.pk,
+                    "note": note or "",
+                },
+                severity="warning",
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "report_heavy_equipment_damage",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Retire asset"),
+        form_fields={
+            "retired_on": {
+                "field": forms.DateField(
+                    label=_("Retired on"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "retirement_reason": {
+                "field": forms.CharField(
+                    label=_("Retirement reason"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def retire_heavy_equipment_asset(cls, instances, **kwargs):
+        retired_on = kwargs.get("retired_on") or timezone.now().date()
+        reason = kwargs.get("retirement_reason")
+        requester = kwargs.get("requester")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            history[_("Retired on")] = retired_on
+            if reason:
+                history[_("Reason")] = reason
+            instance.status = HeavyEquipmentAssetStatus.retired.id
+            instance.last_status_change = retired_on
+            instance.user = None
+            instance.owner = None
+            instance.assigned_location = ""
+            MaintenanceRecord.close_open_records(
+                instance,
+                resolution=reason or _("Asset retired"),
+            )
+            notify_asset_event(
+                instance,
+                AssetEventType.STATUS_RETIRED,
+                payload={
+                    "retired_on": retired_on.isoformat(),
+                    "reason": reason or "",
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "retire_heavy_equipment_asset",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Log refuel"),
+        form_fields={
+            "refueled_on": {
+                "field": forms.DateField(
+                    label=_("Refueled on"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "fuel_added": {
+                "field": forms.DecimalField(
+                    label=_("Fuel added (L)"),
+                    required=False,
+                    max_digits=10,
+                    decimal_places=2,
+                    min_value=0,
+                )
+            },
+            "fuel_level_percent": {
+                "field": forms.DecimalField(
+                    label=_("New fuel level (%)"),
+                    required=False,
+                    max_digits=5,
+                    decimal_places=2,
+                    min_value=0,
+                    max_value=100,
+                )
+            },
+            "note": {
+                "field": forms.CharField(
+                    label=_("Note"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 2}),
+                )
+            },
+        },
+    )
+    def log_heavy_equipment_refuel(cls, instances, **kwargs):
+        refueled_on = kwargs.get("refueled_on") or timezone.now().date()
+        fuel_added = kwargs.get("fuel_added")
+        fuel_level = kwargs.get("fuel_level_percent")
+        note = kwargs.get("note")
+        requester = kwargs.get("requester")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            history[_("Refueled on")] = refueled_on
+            if fuel_added is not None:
+                history[_("Fuel added (L)")] = float(fuel_added)
+            if fuel_level is not None:
+                instance.fuel_level_percent = fuel_level
+                history[_("Fuel level (%)")] = float(fuel_level)
+            if note:
+                history[_("Note")] = note
+            extra = {
+                "refueled_on": refueled_on.isoformat(),
+                "fuel_added_l": float(fuel_added)
+                if fuel_added is not None
+                else None,
+                "fuel_level_percent": float(fuel_level)
+                if fuel_level is not None
+                else None,
+            }
+            MaintenanceRecord.start_record(
+                base_object=instance,
+                record_type=MaintenanceRecordType.refuel.id,
+                status=MaintenanceRecordStatus.completed.id,
+                description=note or "",
+                extra_data=extra,
+            )
+            notify_asset_event(
+                instance,
+                AssetEventType.REFUEL_LOGGED,
+                payload={
+                    "refueled_on": refueled_on.isoformat(),
+                    "fuel_added_l": float(fuel_added)
+                    if fuel_added is not None
+                    else None,
+                    "fuel_level_percent": float(fuel_level)
+                    if fuel_level is not None
+                    else None,
+                    "note": note or "",
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "log_heavy_equipment_refuel",
+                },
+            )

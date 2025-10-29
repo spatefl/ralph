@@ -1,5 +1,12 @@
 from django.db.models.options import Options
 
+try:  # pragma: no cover
+    import pymysql
+
+    pymysql.install_as_MySQLdb()
+except Exception:  # pragma: no cover - fallback when driver unavailable
+    pass
+
 __version__ = "3.0.0"
 
 

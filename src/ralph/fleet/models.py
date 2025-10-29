@@ -1,7 +1,11 @@
 from decimal import Decimal
 from datetime import date, timedelta
 
+from collections import defaultdict
+
+from django import forms
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
@@ -9,8 +13,681 @@ from django.db.models import F, Q, Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from ralph.accounts.models import Regionalizable
+from ralph.assets.models.assets import (
+    Asset,
+    MaintenanceRecord,
+    MaintenanceRecordStatus,
+    MaintenanceRecordType,
+)
+from ralph.assets.notifications import AssetEventType, notify_asset_event
+from ralph.lib.dj_choices import Choices
 from ralph.lib.lifecycle import LifecycleStatusMixin
+from ralph.lib.mixins.fields import NullableCharField
 from ralph.lib.mixins.models import AdminAbsoluteUrlMixin, TimeStampMixin
+from ralph.lib.transitions.decorators import transition_action
+from ralph.lib.transitions.fields import TransitionField
+
+
+def _history_entry(kwargs, instance):
+    history_kwargs = kwargs.get("history_kwargs")
+    if history_kwargs is None:
+        history_kwargs = kwargs["history_kwargs"] = defaultdict(dict)
+    history_kwargs.setdefault(instance.pk, {})
+    return history_kwargs[instance.pk]
+
+
+class FleetVehicleType(models.TextChoices):
+    CAR = "car", _("Car")
+    TRUCK = "truck", _("Truck")
+    VAN = "van", _("Van")
+    SUV = "suv", _("SUV")
+    HEAVY = "heavy", _("Heavy equipment")
+    AMBULANCE = "ambulance", _("Ambulance")
+    FIRE = "fire", _("Fire / Rescue vehicle")
+    COMMAND = "command", _("Command / Support unit")
+    BUS = "bus", _("Bus / Shuttle")
+    OTHER = "other", _("Other")
+
+
+class FuelType(models.TextChoices):
+    GASOLINE = "gasoline", _("Gasoline")
+    DIESEL = "diesel", _("Diesel")
+    HYBRID = "hybrid", _("Hybrid")
+    ELECTRIC = "electric", _("Electric")
+    OTHER = "other", _("Other")
+
+
+class FleetAssetStatus(Choices):
+    _ = Choices.Choice
+
+    new = _("new")
+    in_use = _("in use")
+    under_maintenance = _("under maintenance")
+    damaged = _("damaged")
+    retired = _("retired")
+
+
+class FleetAssetFunctionalGroup(Choices):
+    _ = Choices.Choice
+
+    light = _("Light vehicles")
+    trucks = _("Trucks & haulers")
+    utility = _("Utility & vans")
+    emergency = _("Emergency response vehicles")
+    passenger = _("Passenger transport")
+    specialty = _("Specialty & other vehicles")
+
+
+FLEET_GROUP_MAP = {
+    FleetAssetFunctionalGroup.light.id: {
+        FleetVehicleType.CAR,
+        FleetVehicleType.SUV,
+    },
+    FleetAssetFunctionalGroup.trucks.id: {
+        FleetVehicleType.TRUCK,
+        FleetVehicleType.HEAVY,
+    },
+    FleetAssetFunctionalGroup.utility.id: {
+        FleetVehicleType.VAN,
+        FleetVehicleType.COMMAND,
+    },
+    FleetAssetFunctionalGroup.emergency.id: {
+        FleetVehicleType.AMBULANCE,
+        FleetVehicleType.FIRE,
+    },
+    FleetAssetFunctionalGroup.passenger.id: {
+        FleetVehicleType.BUS,
+    },
+    FleetAssetFunctionalGroup.specialty.id: {
+        FleetVehicleType.OTHER,
+    },
+}
+
+
+class FleetAssetGroupManager(models.Manager):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return self.model.filtered_queryset(queryset)
+
+
+class FleetAsset(Regionalizable, Asset):
+    _allow_in_dashboard = True
+
+    license_plate = NullableCharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        unique=True,
+        verbose_name=_("license plate"),
+    )
+    vin = NullableCharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        unique=True,
+        verbose_name=_("vehicle identification number (VIN)"),
+    )
+    vehicle_type = models.CharField(
+        max_length=32,
+        choices=FleetVehicleType.choices,
+        default=FleetVehicleType.OTHER,
+        verbose_name=_("vehicle type"),
+    )
+    fuel_type = models.CharField(
+        max_length=16,
+        choices=FuelType.choices,
+        default=FuelType.GASOLINE,
+        verbose_name=_("fuel type"),
+    )
+    odometer_km = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("odometer (km)"),
+    )
+    hours_used = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("hours used"),
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="fleet_assets_as_owner",
+        on_delete=models.CASCADE,
+        verbose_name=_("asset owner"),
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="fleet_assets_as_driver",
+        on_delete=models.CASCADE,
+        verbose_name=_("assigned driver"),
+    )
+    assigned_location = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name=_("assigned location"),
+    )
+    registration_expiry = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("registration expiry"),
+    )
+    inspection_due_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("inspection due date"),
+    )
+    insurance_expiry = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("insurance expiry"),
+    )
+    status = TransitionField(
+        default=FleetAssetStatus.new.id,
+        choices=FleetAssetStatus(),
+    )
+    last_service_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("last service date"),
+    )
+    next_service_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("next service date"),
+    )
+    next_service_odometer = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("next service odometer (km)"),
+    )
+    last_status_change = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("last status change"),
+    )
+
+    class Meta:
+        verbose_name = _("Fleet asset")
+        verbose_name_plural = _("Fleet assets")
+
+    def __str__(self):
+        identifier = self.license_plate or self.hostname or self.barcode or "-"
+        return "{} ({})".format(identifier, self.get_vehicle_type_display())
+
+    @classmethod
+    def compliance_due(cls, within_days=7):
+        today = timezone.now().date()
+        deadline = today + timedelta(days=within_days)
+        return cls.objects.exclude(status=FleetAssetStatus.retired.id).filter(
+            models.Q(
+                registration_expiry__isnull=False,
+                registration_expiry__lte=deadline,
+            )
+            | models.Q(
+                inspection_due_date__isnull=False,
+                inspection_due_date__lte=deadline,
+            )
+            | models.Q(
+                insurance_expiry__isnull=False,
+                insurance_expiry__lte=deadline,
+            )
+        )
+
+    def compliance_deadlines(self):
+        deadlines = []
+        if self.registration_expiry:
+            deadlines.append((_("registration"), self.registration_expiry))
+        if self.inspection_due_date:
+            deadlines.append((_("inspection"), self.inspection_due_date))
+        if self.insurance_expiry:
+            deadlines.append((_("insurance"), self.insurance_expiry))
+        return deadlines
+
+    def compliance_alerts(self, within_days=7, reference_date=None):
+        reference_date = reference_date or timezone.now().date()
+        deadline = reference_date + timedelta(days=within_days)
+        alerts = []
+        for label, due_date in self.compliance_deadlines():
+            if due_date <= deadline and self.status != FleetAssetStatus.retired.id:
+                alerts.append(
+                    {
+                        "metric": f"{label}",
+                        "value": due_date.isoformat(),
+                        "threshold": deadline.isoformat(),
+                        "days_until_due": (due_date - reference_date).days,
+                    }
+                )
+        return alerts
+
+
+class FleetAssetGroupProxyMixin:
+    functional_group_filter = None
+    objects = FleetAssetGroupManager()
+
+    @classmethod
+    def filtered_queryset(cls, queryset):
+        group = cls.functional_group_filter
+        if not group:
+            return queryset
+        vehicle_values = FLEET_GROUP_MAP.get(group, set())
+        if not vehicle_values:
+            return queryset.none()
+        return queryset.filter(vehicle_type__in=vehicle_values)
+
+
+class FleetLightVehicle(FleetAssetGroupProxyMixin, FleetAsset):
+    functional_group_filter = FleetAssetFunctionalGroup.light.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Light vehicle")
+        verbose_name_plural = _("Light vehicles")
+
+
+class FleetTruckHauler(FleetAssetGroupProxyMixin, FleetAsset):
+    functional_group_filter = FleetAssetFunctionalGroup.trucks.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Truck or hauler")
+        verbose_name_plural = _("Trucks & haulers")
+
+
+class FleetUtilityVehicle(FleetAssetGroupProxyMixin, FleetAsset):
+    functional_group_filter = FleetAssetFunctionalGroup.utility.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Utility vehicle")
+        verbose_name_plural = _("Utility vehicles")
+
+
+class FleetEmergencyVehicle(FleetAssetGroupProxyMixin, FleetAsset):
+    functional_group_filter = FleetAssetFunctionalGroup.emergency.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Emergency response vehicle")
+        verbose_name_plural = _("Emergency response vehicles")
+
+
+class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
+    functional_group_filter = FleetAssetFunctionalGroup.passenger.id
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Passenger transport vehicle")
+        verbose_name_plural = _("Passenger transport vehicles")
+
+    def service_alerts(self, reference_date=None):
+        reference_date = reference_date or timezone.now().date()
+        today = timezone.now().date()
+        alerts = []
+        if (
+            self.next_service_date
+            and self.next_service_date <= reference_date
+            and self.status != FleetAssetStatus.retired.id
+        ):
+            days_until = (self.next_service_date - today).days
+            alerts.append(
+                {
+                    "metric": "next_service_date",
+                    "value": self.next_service_date.isoformat(),
+                    "threshold": reference_date.isoformat(),
+                    "days_until_due": days_until,
+                }
+            )
+        if (
+            self.next_service_odometer is not None
+            and self.odometer_km >= self.next_service_odometer
+            and self.status != FleetAssetStatus.retired.id
+        ):
+            overage = self.odometer_km - self.next_service_odometer
+            alerts.append(
+                {
+                    "metric": "next_service_odometer",
+                    "value": self.odometer_km,
+                    "threshold": self.next_service_odometer,
+                    "overage": overage,
+                }
+            )
+        return alerts
+
+    @property
+    def functional_group(self):
+        for group, types in FLEET_GROUP_MAP.items():
+            if self.vehicle_type in types:
+                return group
+        return FleetAssetFunctionalGroup.specialty.id
+
+    def get_functional_group_display(self):
+        choice = FleetAssetFunctionalGroup.from_id(self.functional_group)
+        return choice.desc if choice else ""
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Activate asset"),
+        form_fields={
+            "user": {
+                "field": forms.CharField(
+                    label=_("Assigned driver"),
+                    required=False,
+                ),
+                "autocomplete_field": "user",
+            },
+            "assigned_location": {
+                "field": forms.CharField(
+                    label=_("Assigned location"),
+                    required=False,
+                ),
+            },
+            "initial_odometer": {
+                "field": forms.IntegerField(
+                    label=_("Current odometer (km)"),
+                    required=False,
+                    min_value=0,
+                )
+            },
+        },
+    )
+    def activate_fleet_asset(cls, instances, **kwargs):
+        user = None
+        user_id = kwargs.get("user")
+        requester = kwargs.get("requester")
+        if user_id:
+            user = get_user_model().objects.get(pk=int(user_id))
+        location = kwargs.get("assigned_location")
+        initial_odometer = kwargs.get("initial_odometer")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            if user is not None:
+                instance.user = user
+                history[_("Driver")] = str(user)
+            if location is not None:
+                instance.assigned_location = location or ""
+                if location:
+                    history[_("Location")] = location
+            if initial_odometer is not None:
+                instance.odometer_km = initial_odometer
+                history[_("Odometer (km)")] = initial_odometer
+            instance.status = FleetAssetStatus.in_use.id
+            instance.last_status_change = timezone.now().date()
+            notify_asset_event(
+                instance,
+                AssetEventType.STATUS_ACTIVATED,
+                payload={
+                    "assigned_user": user.pk if user else None,
+                    "assigned_location": instance.assigned_location or None,
+                    "odometer_km": instance.odometer_km,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "activate_fleet_asset",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Begin maintenance"),
+        form_fields={
+            "expected_completion": {
+                "field": forms.DateField(
+                    label=_("Expected completion date"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "maintenance_note": {
+                "field": forms.CharField(
+                    label=_("Maintenance note"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def start_fleet_maintenance(cls, instances, **kwargs):
+        requester = kwargs.get("requester")
+        expected_completion = kwargs.get("expected_completion")
+        note = kwargs.get("maintenance_note")
+        performed_by = kwargs.get("performed_by")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            if expected_completion:
+                history[_("Expected completion")] = expected_completion
+                instance.next_service_date = expected_completion
+            if note:
+                history[_("Note")] = note
+            instance.status = FleetAssetStatus.under_maintenance.id
+            instance.last_status_change = timezone.now().date()
+            record = MaintenanceRecord.start_record(
+                base_object=instance,
+                record_type=MaintenanceRecordType.maintenance.id,
+                status=MaintenanceRecordStatus.in_progress.id,
+                description=note or "",
+                expected_completion=expected_completion,
+                out_of_service=True,
+                reported_by=requester,
+                performed_by=performed_by,
+            )
+            history[_("Maintenance record")] = str(record.pk)
+            notify_asset_event(
+                instance,
+                AssetEventType.MAINTENANCE_STARTED,
+                payload={
+                    "record_id": record.pk,
+                    "expected_completion": expected_completion.isoformat()
+                    if expected_completion
+                    else None,
+                    "note": note or "",
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "performed_by": performed_by,
+                    "transition": "start_fleet_maintenance",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Complete maintenance"),
+        form_fields={
+            "completed_on": {
+                "field": forms.DateField(
+                    label=_("Completed on"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "odometer_after_service": {
+                "field": forms.IntegerField(
+                    label=_("Odometer after service (km)"),
+                    required=False,
+                    min_value=0,
+                )
+            },
+            "next_service_date": {
+                "field": forms.DateField(
+                    label=_("Next service date"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "next_service_odometer": {
+                "field": forms.IntegerField(
+                    label=_("Next service odometer (km)"),
+                    required=False,
+                    min_value=0,
+                )
+            },
+            "maintenance_summary": {
+                "field": forms.CharField(
+                    label=_("Maintenance summary"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def complete_fleet_maintenance(cls, instances, **kwargs):
+        requester = kwargs.get("requester")
+        completed_on = kwargs.get("completed_on") or timezone.now().date()
+        odometer = kwargs.get("odometer_after_service")
+        next_date = kwargs.get("next_service_date")
+        next_odometer = kwargs.get("next_service_odometer")
+        summary = kwargs.get("maintenance_summary")
+        performed_by = kwargs.get("performed_by")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            history[_("Completed on")] = completed_on
+            instance.last_service_date = completed_on
+            if odometer is not None:
+                instance.odometer_km = odometer
+                history[_("Odometer (km)")] = odometer
+            if next_date:
+                instance.next_service_date = next_date
+                history[_("Next service date")] = next_date
+            if next_odometer is not None:
+                instance.next_service_odometer = next_odometer
+                history[_("Next service odometer (km)")] = next_odometer
+            if summary:
+                history[_("Summary")] = summary
+            instance.status = FleetAssetStatus.in_use.id
+            instance.last_status_change = timezone.now().date()
+            extra = {
+                "completed_on": completed_on.isoformat(),
+                "odometer_km": odometer,
+                "next_service_date": next_date.isoformat()
+                if next_date
+                else None,
+                "next_service_odometer": next_odometer,
+            }
+            record = MaintenanceRecord.close_latest(
+                instance,
+                record_type=MaintenanceRecordType.maintenance.id,
+                resolution=summary,
+                extra_data=extra,
+                performed_by=performed_by or (requester.get_full_name() if requester else None),
+            )
+            notify_asset_event(
+                instance,
+                AssetEventType.MAINTENANCE_COMPLETED,
+                payload={
+                    "record_id": record.pk if record else None,
+                    "completed_on": completed_on.isoformat(),
+                    "summary": summary or "",
+                    "next_service_date": next_date.isoformat()
+                    if next_date
+                    else None,
+                    "next_service_odometer": next_odometer,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "performed_by": performed_by,
+                    "transition": "complete_fleet_maintenance",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Report damage"),
+        form_fields={
+            "damage_note": {
+                "field": forms.CharField(
+                    label=_("Damage description"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def flag_fleet_damage(cls, instances, **kwargs):
+        requester = kwargs.get("requester")
+        note = kwargs.get("damage_note")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            if note:
+                history[_("Damage note")] = note
+            instance.status = FleetAssetStatus.damaged.id
+            instance.last_status_change = timezone.now().date()
+            record = MaintenanceRecord.start_record(
+                base_object=instance,
+                record_type=MaintenanceRecordType.repair.id,
+                status=MaintenanceRecordStatus.open.id,
+                description=note or "",
+                out_of_service=True,
+                reported_by=requester,
+            )
+            history[_("Maintenance record")] = str(record.pk)
+            notify_asset_event(
+                instance,
+                AssetEventType.INCIDENT_DAMAGE,
+                payload={
+                    "record_id": record.pk,
+                    "note": note or "",
+                },
+                severity="warning",
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "flag_fleet_damage",
+                },
+            )
+
+    @classmethod
+    @transition_action(
+        verbose_name=_("Retire asset"),
+        form_fields={
+            "retired_on": {
+                "field": forms.DateField(
+                    label=_("Retired on"),
+                    required=False,
+                    widget=forms.TextInput(attrs={"class": "datepicker"}),
+                )
+            },
+            "retirement_reason": {
+                "field": forms.CharField(
+                    label=_("Retirement reason"),
+                    required=False,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            },
+        },
+    )
+    def retire_fleet_asset(cls, instances, **kwargs):
+        retired_on = kwargs.get("retired_on") or timezone.now().date()
+        reason = kwargs.get("retirement_reason")
+        requester = kwargs.get("requester")
+        for instance in instances:
+            history = _history_entry(kwargs, instance)
+            history[_("Retired on")] = retired_on
+            instance.last_status_change = retired_on
+            if reason:
+                history[_("Reason")] = reason
+            instance.status = FleetAssetStatus.retired.id
+            instance.user = None
+            instance.owner = None
+            instance.assigned_location = ""
+            MaintenanceRecord.close_open_records(
+                instance,
+                resolution=reason or _("Asset retired"),
+                performed_by=requester,
+            )
+            notify_asset_event(
+                instance,
+                AssetEventType.STATUS_RETIRED,
+                payload={
+                    "retired_on": retired_on.isoformat(),
+                    "reason": reason or "",
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "retire_fleet_asset",
+                },
+            )
 
 
 class VehicleQuerySet(models.QuerySet):
@@ -26,14 +703,6 @@ class VehicleQuerySet(models.QuerySet):
                 odometer_km__gte=F("next_service_odometer"),
             )
         )
-
-
-class FuelType(models.TextChoices):
-    GASOLINE = "gasoline", _("Gasoline")
-    DIESEL = "diesel", _("Diesel")
-    HYBRID = "hybrid", _("Hybrid")
-    ELECTRIC = "electric", _("Electric")
-    OTHER = "other", _("Other")
 
 
 class VehicleStatus(models.TextChoices):
