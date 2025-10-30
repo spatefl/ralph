@@ -72,6 +72,7 @@ class SensorOperationsView(RalphDetailViewAdmin):
         "next_calibration_due",
         "communication_protocol",
         "power_source",
+        "disposal_status_display",
     ]
 
 

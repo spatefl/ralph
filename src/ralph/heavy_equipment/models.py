@@ -15,6 +15,8 @@ from ralph.assets.models.assets import (
     MaintenanceRecord,
     MaintenanceRecordStatus,
     MaintenanceRecordType,
+    DisposalRecord,
+    DisposalStatus,
 )
 from ralph.assets.notifications import AssetEventType, notify_asset_event
 from ralph.lib.dj_choices import Choices
@@ -498,6 +500,13 @@ class HeavyEquipmentAsset(Regionalizable, Asset):
                 }
                 )
         return alerts
+
+    @property
+    def disposal_status_display(self):
+        record = getattr(self, "disposal_record", None)
+        if not record:
+            return ""
+        return DisposalStatus.from_id(record.status).desc
 
 
 class HeavyEquipmentGroupProxyMixin:
@@ -1008,6 +1017,22 @@ class HeavyEquipmentMaterialHandling(
                 instance,
                 resolution=reason or _("Asset retired"),
                 performed_by=requester,
+            )
+            disposal_record = DisposalRecord.ensure_for_asset(instance)
+            history[_("Disposal tasks")] = [
+                task.name for task in disposal_record.tasks.filter(is_completed=False)
+            ]
+            notify_asset_event(
+                instance,
+                AssetEventType.DISPOSAL_PENDING,
+                payload={
+                    "disposal_record_id": disposal_record.pk,
+                    "status": DisposalStatus.from_id(disposal_record.status).desc,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "retire_heavy_equipment_asset",
+                },
             )
             notify_asset_event(
                 instance,

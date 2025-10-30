@@ -69,6 +69,7 @@ class HeavyEquipmentAssetViewSet(RalphAPIViewSet):
             "telemetry_readings",
             queryset=TelemetryReading.objects.order_by("-captured_at", "-ingested_at"),
         ),
+        "disposal_record__tasks",
     ]
     queryset = HeavyEquipmentAsset.objects.all()
     serializer_class = HeavyEquipmentAssetSerializer

@@ -75,6 +75,7 @@ class FleetOperationsView(RalphDetailViewAdmin):
         "next_service_odometer",
         "last_telematics_at",
         "last_known_speed_kmh",
+        "disposal_status_display",
     ]
 
 

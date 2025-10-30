@@ -34,6 +34,7 @@ from ralph.assets.models import (
     MaintenanceRecord,
     MaintenanceRecordStatus,
     MaintenanceRecordType,
+    DisposalStatus,
     ProfitCenter,
     Service,
     ServiceEnvironment,
@@ -461,6 +462,8 @@ class MaintenanceRecordSerializer(RalphAPISerializer):
     )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     reported_by = SimpleRalphUserSerializer(read_only=True)
+    closed_by = SimpleRalphUserSerializer(read_only=True)
+    is_sla_overdue = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = MaintenanceRecord
@@ -480,6 +483,14 @@ class MaintenanceRecordSerializer(RalphAPISerializer):
             "out_of_service",
             "reported_by",
             "performed_by",
+            "service_provider",
+            "sla_due_at",
+            "closed_by",
+            "closure_notes",
+            "closure_acknowledged",
+            "closure_acknowledged_at",
+            "extra_data",
+            "is_sla_overdue",
         )
 
 
@@ -488,6 +499,7 @@ class ComplianceRecordSerializer(RalphAPISerializer):
         source="get_record_type_display", read_only=True
     )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    document = serializers.FileField(read_only=True)
 
     class Meta:
         model = ComplianceRecord
@@ -504,7 +516,10 @@ class ComplianceRecordSerializer(RalphAPISerializer):
             "performed_by",
             "reference",
             "document_url",
+            "document",
             "notes",
+            "extra_data",
+            "template",
         )
 
 
@@ -552,6 +567,7 @@ class AssetLifecycleSerializerMixin(RalphAPISerializer):
     telemetry_readings = serializers.SerializerMethodField()
     maintenance_summary = serializers.SerializerMethodField()
     compliance_summary = serializers.SerializerMethodField()
+    disposal_summary = serializers.SerializerMethodField()
 
     maintenance_records_limit = 10
     compliance_records_limit = 10
@@ -711,6 +727,31 @@ class AssetLifecycleSerializerMixin(RalphAPISerializer):
             else None,
         }
         return summary
+
+    def get_disposal_summary(self, obj):
+        record = getattr(obj, "disposal_record", None)
+        if not record:
+            return None
+        status_choice = DisposalStatus.from_id(record.status)
+        status_desc = status_choice.desc if status_choice else ""
+        return {
+            "status": status_desc,
+            "method": record.method,
+            "approved_by": record.approved_by.pk if record.approved_by else None,
+            "approved_at": record.approved_at.isoformat() if record.approved_at else None,
+            "tasks": [
+                {
+                    "id": task.pk,
+                    "name": task.name,
+                    "is_required": task.is_required,
+                    "is_completed": task.is_completed,
+                    "completed_at": task.completed_at.isoformat()
+                    if task.completed_at
+                    else None,
+                }
+                for task in record.tasks.all()
+            ],
+        }
 
 # used by DataCenterAsset and VirtualServer serializers
 class NetworkComponentSerializerMixin(OwnersFromServiceEnvSerializerMixin):

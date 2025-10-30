@@ -4,6 +4,7 @@ import logging
 from datetime import timedelta
 
 from dateutil.relativedelta import relativedelta
+from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, RegexValidator
@@ -613,6 +614,18 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         on_delete=models.SET_NULL,
     )
     performed_by = models.CharField(max_length=128, blank=True)
+    service_provider = models.CharField(max_length=128, blank=True)
+    sla_due_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="closed_maintenance_records",
+        on_delete=models.SET_NULL,
+    )
+    closure_notes = models.TextField(blank=True)
+    closure_acknowledged = models.BooleanField(default=False)
+    closure_acknowledged_at = models.DateTimeField(null=True, blank=True)
     extra_data = models.JSONField(default=dict, blank=True)
 
     objects = MaintenanceRecordQuerySet.as_manager()
@@ -641,6 +654,8 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         reported_by=None,
         performed_by=None,
         extra_data=None,
+        service_provider="",
+        sla_due_at=None,
     ):
         status = status or MaintenanceRecordStatus.open.id
         return cls.objects.create(
@@ -653,6 +668,8 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
             out_of_service=out_of_service,
             reported_by=reported_by,
             performed_by=performed_by or "",
+            service_provider=service_provider or "",
+            sla_due_at=sla_due_at,
             extra_data=extra_data or {},
         )
 
@@ -667,6 +684,10 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         cost=None,
         closed_at=None,
         performed_by=None,
+        closed_by=None,
+        closure_notes=None,
+        closure_acknowledged=False,
+        closure_acknowledged_at=None,
     ):
         filters = {
             "base_object": base_object,
@@ -691,12 +712,29 @@ class MaintenanceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
             record.cost = cost
         if performed_by is not None:
             record.performed_by = performed_by
+        if closed_by is not None:
+            record.closed_by = closed_by
+        if closure_notes is not None:
+            record.closure_notes = closure_notes
+        if closure_acknowledged:
+            record.closure_acknowledged = True
+            record.closure_acknowledged_at = (
+                closure_acknowledged_at or timezone.now()
+            )
         if extra_data:
             combined = record.extra_data.copy()
             combined.update(extra_data)
             record.extra_data = combined
         record.save()
         return record
+
+    @property
+    def is_sla_overdue(self):
+        if self.sla_due_at is None:
+            return False
+        if self.status == MaintenanceRecordStatus.completed.id:
+            return False
+        return self.sla_due_at < timezone.now()
 
     @classmethod
     def close_open_records(
@@ -846,7 +884,21 @@ class ComplianceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         blank=True,
         help_text=_("Link to compliance document or evidence."),
     )
+    document = models.FileField(
+        upload_to="compliance_documents/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text=_("Upload inspection certificates or permits."),
+    )
     notes = models.TextField(blank=True)
+    template = models.ForeignKey(
+        "assets.ComplianceTemplate",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="generated_records",
+    )
+    extra_data = models.JSONField(default=dict, blank=True)
 
     objects = ComplianceRecordQuerySet.as_manager()
 
@@ -877,6 +929,223 @@ class ComplianceRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
             return False
         soon_threshold = timezone.now().date() + timedelta(days=30)
         return timezone.now().date() <= self.expires_on <= soon_threshold
+
+
+class ComplianceTemplate(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    name = models.CharField(max_length=128)
+    record_type = models.PositiveIntegerField(
+        choices=ComplianceRecordType(),
+        default=ComplianceRecordType.inspection.id,
+    )
+    title = models.CharField(max_length=128)
+    description = models.TextField(blank=True)
+    frequency_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=_("Number of days between required checks."),
+    )
+    grace_period_days = models.PositiveIntegerField(
+        default=0,
+        help_text=_("Grace period before the compliance item is considered overdue."),
+    )
+    content_type = models.ForeignKey(
+        ContentType,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        help_text=_("Limit template to a specific asset type."),
+    )
+    is_active = models.BooleanField(default=True)
+    auto_create = models.BooleanField(
+        default=True,
+        help_text=_("Automatically create compliance records for matching assets."),
+    )
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name = _("Compliance template")
+        verbose_name_plural = _("Compliance templates")
+
+    def __str__(self):
+        return self.name
+
+    def applies_to(self, asset):
+        if not self.is_active:
+            return False
+        if asset is None:
+            return False
+        if self.content_type is None:
+            return True
+        return self.content_type.model_class() == asset.__class__
+
+    @classmethod
+    def applicable_for(cls, asset):
+        return [template for template in cls.objects.filter(is_active=True) if template.applies_to(asset)]
+
+
+class DisposalStatus(Choices):
+    _ = Choices.Choice
+
+    pending = _("pending")
+    in_progress = _("in progress")
+    completed = _("completed")
+
+
+class DisposalTemplate(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    name = models.CharField(max_length=128)
+    content_type = models.ForeignKey(
+        ContentType,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        help_text=_("Limit disposal template to a specific asset type."),
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name = _("Disposal template")
+        verbose_name_plural = _("Disposal templates")
+
+    def __str__(self):
+        return self.name
+
+    def applies_to(self, asset):
+        if not self.is_active:
+            return False
+        if self.content_type is None:
+            return True
+        return self.content_type.model_class() == asset.__class__
+
+    @classmethod
+    def for_asset(cls, asset):
+        for template in cls.objects.filter(is_active=True):
+            if template.applies_to(asset):
+                return template
+        return None
+
+
+class DisposalTemplateTask(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    template = models.ForeignKey(
+        DisposalTemplate,
+        related_name="tasks",
+        on_delete=models.CASCADE,
+    )
+    name = models.CharField(max_length=128)
+    is_required = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("template", "name")
+        verbose_name = _("Disposal template task")
+        verbose_name_plural = _("Disposal template tasks")
+
+    def __str__(self):
+        return f"{self.template}: {self.name}"
+
+
+class DisposalRecord(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    base_object = models.OneToOneField(
+        BaseObject,
+        related_name="disposal_record",
+        on_delete=models.CASCADE,
+    )
+    status = models.PositiveIntegerField(
+        choices=DisposalStatus(),
+        default=DisposalStatus.pending.id,
+    )
+    method = models.CharField(max_length=128, blank=True)
+    notes = models.TextField(blank=True)
+    document = models.FileField(
+        upload_to="disposal_documents/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text=_("Upload sale receipts or certificates of destruction."),
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="approved_disposals",
+        on_delete=models.SET_NULL,
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    template = models.ForeignKey(
+        DisposalTemplate,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+
+    class Meta:
+        ordering = ("-created",)
+        verbose_name = _("Disposal record")
+        verbose_name_plural = _("Disposal records")
+
+    def __str__(self):
+        return f"Disposal for {self.base_object}"
+
+    def mark_completed(self, user=None):
+        self.status = DisposalStatus.completed.id
+        if user is not None:
+            self.approved_by = user
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at", "modified"])
+
+    @classmethod
+    def ensure_for_asset(cls, asset):
+        base_object = getattr(asset, "baseobject_ptr", None) or asset
+        template = DisposalTemplate.for_asset(asset)
+        defaults = {"template": template}
+        record, created = cls.objects.get_or_create(base_object=base_object, defaults=defaults)
+        if created and template is not None:
+            record.populate_tasks_from_template()
+        return record
+
+    def populate_tasks_from_template(self):
+        if not self.template:
+            return
+        existing = {task.name for task in self.tasks.all()}
+        for template_task in self.template.tasks.all():
+            if template_task.name in existing:
+                continue
+            DisposalTask.objects.create(
+                disposal_record=self,
+                name=template_task.name,
+                is_required=template_task.is_required,
+            )
+
+
+class DisposalTask(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
+    disposal_record = models.ForeignKey(
+        DisposalRecord,
+        related_name="tasks",
+        on_delete=models.CASCADE,
+    )
+    name = models.CharField(max_length=128)
+    is_required = models.BooleanField(default=True)
+    is_completed = models.BooleanField(default=False)
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="completed_disposal_tasks",
+        on_delete=models.SET_NULL,
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("disposal_record", "name")
+        verbose_name = _("Disposal task")
+        verbose_name_plural = _("Disposal tasks")
+
+    def __str__(self):
+        return f"{self.name} ({self.disposal_record})"
+
+    def complete(self, user=None):
+        self.is_completed = True
+        self.completed_by = user
+        self.completed_at = timezone.now()
+        self.save(update_fields=["is_completed", "completed_by", "completed_at", "modified"])
 
 
 class DeploymentStatus(Choices):

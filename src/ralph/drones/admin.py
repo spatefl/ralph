@@ -75,6 +75,7 @@ class DroneOperationsView(RalphDetailViewAdmin):
         "battery_cycle_count",
         "next_maintenance_date",
         "next_maintenance_flight_hours",
+        "disposal_status_display",
     ]
 
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from django.contrib import admin
 from django.db.models import Count
 from django.forms import BaseInlineFormSet
 from django.utils.safestring import mark_safe
@@ -13,6 +14,11 @@ from ralph.assets.models.assets import (
     AssetModel,
     MaintenanceRecord,
     ComplianceRecord,
+    ComplianceTemplate,
+    DisposalRecord,
+    DisposalTask,
+    DisposalTemplate,
+    DisposalTemplateTask,
     DeploymentEntry,
     TelemetryReading,
     BudgetInfo,
@@ -198,17 +204,20 @@ class MaintenanceRecordAdmin(RalphAdmin):
         "opened_at",
         "expected_completion",
         "closed_at",
+        "service_provider",
+        "sla_due_at",
+        "is_sla_overdue",
         "out_of_service",
     )
-    list_filter = ("record_type", "status", "out_of_service")
+    list_filter = ("record_type", "status", "out_of_service", "service_provider")
     search_fields = (
         "base_object__hostname",
         "base_object__barcode",
         "description",
         "resolution",
     )
-    raw_id_fields = ("base_object", "reported_by")
-    readonly_fields = ("created", "modified")
+    raw_id_fields = ("base_object", "reported_by", "closed_by")
+    readonly_fields = ("created", "modified", "is_sla_overdue")
 
     def record_type_display(self, instance):
         return instance.get_record_type_display()
@@ -219,6 +228,10 @@ class MaintenanceRecordAdmin(RalphAdmin):
         return instance.get_status_display()
 
     status_display.short_description = _("Status")
+
+    @admin.display(boolean=True, description=_("SLA overdue"))
+    def is_sla_overdue(self, instance):
+        return instance.is_sla_overdue
 
 
 class MaintenanceRecordInline(RalphTabularInline):
@@ -233,6 +246,12 @@ class MaintenanceRecordInline(RalphTabularInline):
         "closed_at",
         "reported_by",
         "performed_by",
+        "service_provider",
+        "sla_due_at",
+        "closed_by",
+        "closure_notes",
+        "closure_acknowledged",
+        "closure_acknowledged_at",
         "cost",
     )
     readonly_fields = fields
@@ -261,8 +280,10 @@ class ComplianceRecordAdmin(RalphAdmin):
         "status_display",
         "performed_on",
         "expires_on",
+        "template",
+        "document_link",
     )
-    list_filter = ("record_type", "status", "expires_on")
+    list_filter = ("record_type", "status", "expires_on", "template")
     search_fields = (
         "base_object__hostname",
         "base_object__barcode",
@@ -270,8 +291,42 @@ class ComplianceRecordAdmin(RalphAdmin):
         "reference",
         "description",
     )
-    raw_id_fields = ("base_object",)
-    readonly_fields = ("created", "modified")
+    raw_id_fields = ("base_object", "template")
+    readonly_fields = ("created", "modified", "document_link")
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "base_object",
+                    "template",
+                    "record_type",
+                    "status",
+                    "title",
+                    "description",
+                    "notes",
+                )
+            },
+        ),
+        (
+            _("Schedule"),
+            {
+                "fields": (
+                    "performed_on",
+                    "expires_on",
+                    "performed_by",
+                    "reference",
+                    "document_url",
+                    "document",
+                    "document_link",
+                )
+            },
+        ),
+        (
+            _("Metadata"),
+            {"fields": ("extra_data", "created", "modified")},
+        ),
+    )
 
     def record_type_display(self, instance):
         return instance.get_record_type_display()
@@ -282,6 +337,89 @@ class ComplianceRecordAdmin(RalphAdmin):
         return instance.get_status_display()
 
     status_display.short_description = _("Status")
+
+    def document_link(self, instance):
+        if instance.document:
+            return mark_safe(
+                '<a href="{url}" target="_blank" rel="noopener">{label}</a>'.format(
+                    url=instance.document.url,
+                    label=_("Download"),
+                )
+            )
+        return "—"
+
+    document_link.short_description = _("Document")
+
+
+@register(ComplianceTemplate)
+class ComplianceTemplateAdmin(RalphAdmin):
+    list_display = (
+        "name",
+        "record_type",
+        "frequency_days",
+        "grace_period_days",
+        "content_type",
+        "is_active",
+        "auto_create",
+        "modified",
+    )
+    list_filter = ("record_type", "is_active", "content_type")
+    search_fields = ("name", "title", "description")
+    readonly_fields = ("created", "modified")
+
+
+class DisposalTemplateTaskInline(RalphTabularInline):
+    model = DisposalTemplateTask
+    extra = 1
+    fields = ("name", "is_required")
+
+
+@register(DisposalTemplate)
+class DisposalTemplateAdmin(RalphAdmin):
+    list_display = ("name", "content_type", "is_active", "modified")
+    list_filter = ("is_active", "content_type")
+    search_fields = ("name",)
+    inlines = [DisposalTemplateTaskInline]
+    readonly_fields = ("created", "modified")
+
+
+class DisposalTaskInline(RalphTabularInline):
+    model = DisposalTask
+    extra = 0
+    fields = (
+        "name",
+        "is_required",
+        "is_completed",
+        "completed_by",
+        "completed_at",
+    )
+    can_delete = False
+
+
+@register(DisposalRecord)
+class DisposalRecordAdmin(RalphAdmin):
+    list_display = (
+        "base_object",
+        "status_display",
+        "method",
+        "approved_by",
+        "approved_at",
+        "modified",
+    )
+    list_filter = ("status", "approved_at")
+    search_fields = (
+        "base_object__hostname",
+        "base_object__barcode",
+        "method",
+        "notes",
+    )
+    raw_id_fields = ("base_object", "approved_by", "template")
+    readonly_fields = ("created", "modified")
+    inlines = [DisposalTaskInline]
+
+    @admin.display(description=_("Status"))
+    def status_display(self, instance):
+        return DisposalStatus.from_id(instance.status).desc
 
 
 class ComplianceRecordInline(RalphTabularInline):

@@ -18,6 +18,11 @@ We sincerely appreciate all past contributions that have shaped Ralph into the p
 - Fleet/Drones/Heavy Equipment/Sensor APIs expose the same lifecycle data (latest maintenance/compliance/deployment/telemetry summaries) for SC3 dashboards and automation.
 - Dashboard tiles render lifecycle alerts (open maintenance, expiring compliance, active deployments) so operations teams see hot spots at a glance.
 - Lifecycle workflows now include approval-aware transitions (maintenance, damage, retire) that raise structured events, log `MaintenanceRecord` tickets with costs, and surface maintenance/compliance summaries in both the admin and the API responses for downstream automation.
+- Deployment rosters capture shift assignments through `DeploymentEntry` + `DeploymentAssignment` logs, surface active crew in the admin/API, and auto-link telemetry events to the currently deployed team for richer utilisation metrics.
+- A django-rq scheduler now auto-runs maintenance, compliance, and budget health commands; configure via `ASSETS_SCHEDULER_*` env vars and keep an `rqworker` + `rqscheduler` pair running to emit alerts and open tickets on time.
+- Parts & safety management landed: spare-part inventory with auto-decrementing maintenance usage, restock alerts, procurement feeds, operator certifications, transition-gated safety checklists, and rich incident logging (attachments + follow-up tasks).
+- Lifecycle analytics now compute MTTR/MTBF/time-in-state across assets and functional groups, exposing metrics through `/api/analytics/assets/…` and summarising them on the admin dashboard tiles.
+- Reporting + automation suite (Phase 4): interactive reporting APIs under `/api/reporting/…`, scheduled email digests (`send_asset_digest`), configurable integration endpoints (webhooks/n8n/Celery/ERP), and SLA/predictive maintenance jobs (`check_sla`, `forecast_asset_health`) keep downstream systems and operators in sync.
 
 
 ## Overview
@@ -105,6 +110,18 @@ The `sirius-custom` branch ships with a full dockerised stack that mirrors the s
    * Mount dedicated volumes for MySQL data and media/static
    * Add simple HTTP health checks (`/login/`, `/admin/`) so SC3 waits for the service
    * Configure `RALPH_URL=http://assets-web:8005` and `VITE_ASSETS_URL=http://localhost:8005/assets`
+9. **Background workers & schedulers**
+   * Lifecycle automation (maintenance scheduling, compliance reminders, budget watchdog) runs from `django-rq`. Ensure `rq-scheduler` is installed in the virtualenv, then keep both a worker **and** the scheduler process online:
+     ```bash
+     docker compose -f docker/docker-compose-local-dev.yml exec assets-web venv/bin/python manage.py rqworker default
+     docker compose -f docker/docker-compose-local-dev.yml exec assets-web venv/bin/python manage.py rqscheduler --queue default
+     ```
+   * Tweak intervals via `ASSETS_SCHEDULER_MAINTENANCE_INTERVAL`, `ASSETS_SCHEDULER_COMPLIANCE_INTERVAL`, `ASSETS_SCHEDULER_BUDGET_INTERVAL`, and `ASSETS_SCHEDULER_INVENTORY_INTERVAL` (seconds). Set `ASSETS_SCHEDULER_ENABLED=0` locally if you want to disable automatic scheduling.
+   * Optional: `ASSETS_SCHEDULER_DIGEST_INTERVAL`, `ASSETS_SCHEDULER_SLA_INTERVAL`, `ASSETS_SCHEDULER_FORECAST_INTERVAL` control the cadence for new reporting/optimization jobs. `ASSETS_INTEGRATION_QUEUE` lets you target a dedicated RQ queue for outbound integrations.
+10. **Integration endpoints**
+    * Configure outbound hooks under **Assets → Integration endpoints** in the admin. Supported types today are webhooks/n8n/ERP (HTTP POST) and Celery tasks.
+    * Use the optional secret token or custom headers for downstream verification. Provide a JSON list in `event_filter` to limit events (e.g. `"maintenance.started"`).
+    * Delivery attempts are tracked in **Integration delivery logs**. Combine with `ASSETS_INTEGRATION_QUEUE` to isolate high-volume traffic.
 
 ## Live demo:
 

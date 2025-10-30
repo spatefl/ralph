@@ -13,12 +13,14 @@ class AssetEventType(str, Enum):
     MAINTENANCE_STARTED = "maintenance.started"
     MAINTENANCE_COMPLETED = "maintenance.completed"
     MAINTENANCE_OVERDUE = "maintenance.overdue"
+    MAINTENANCE_SLA_OVERDUE = "maintenance.sla_overdue"
     STATUS_ACTIVATED = "status.activated"
     STATUS_RETIRED = "status.retired"
     INCIDENT_DAMAGE = "incident.damage"
     THRESHOLD_BREACH = "threshold.breach"
     COMPLIANCE_DUE = "compliance.due"
     REFUEL_LOGGED = "maintenance.refuel"
+    DISPOSAL_PENDING = "disposal.pending"
     APPROVAL_REQUIRED = "approval.required"
 
 

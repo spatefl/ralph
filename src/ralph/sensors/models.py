@@ -19,6 +19,8 @@ from ralph.assets.models.assets import (
     MaintenanceRecord,
     MaintenanceRecordStatus,
     MaintenanceRecordType,
+    DisposalRecord,
+    DisposalStatus,
 )
 from ralph.assets.models.base import BaseObject
 from ralph.lib.dj_choices import Choices
@@ -321,6 +323,13 @@ class SensorAsset(Regionalizable, Asset):
                 }
             )
         return alerts
+
+    @property
+    def disposal_status_display(self):
+        record = getattr(self, "disposal_record", None)
+        if not record:
+            return ""
+        return DisposalStatus.from_id(record.status).desc
 
     @classmethod
     @transition_action(
@@ -825,6 +834,22 @@ class SensorAsset(Regionalizable, Asset):
                 instance,
                 resolution=reason or _("Sensor retired"),
                 performed_by=requester,
+            )
+            disposal_record = DisposalRecord.ensure_for_asset(instance)
+            history[_("Disposal tasks")] = [
+                task.name for task in disposal_record.tasks.filter(is_completed=False)
+            ]
+            notify_asset_event(
+                instance,
+                AssetEventType.DISPOSAL_PENDING,
+                payload={
+                    "disposal_record_id": disposal_record.pk,
+                    "status": DisposalStatus.from_id(disposal_record.status).desc,
+                },
+                metadata={
+                    "requester": requester.pk if requester else None,
+                    "transition": "retire_sensor_asset",
+                },
             )
             notify_asset_event(
                 instance,

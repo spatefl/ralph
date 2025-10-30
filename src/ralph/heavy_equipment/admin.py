@@ -57,6 +57,7 @@ class HeavyEquipmentOperationsView(RalphDetailViewAdmin):
         "deployed_on",
         "next_service_date",
         "next_service_hours",
+        "disposal_status_display",
     ]
 
 
