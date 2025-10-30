@@ -75,6 +75,7 @@ class DroneOperationsView(RalphDetailViewAdmin):
         "battery_cycle_count",
         "next_maintenance_date",
         "next_maintenance_flight_hours",
+        "budget_status_display",
         "disposal_status_display",
     ]
 
@@ -328,11 +329,13 @@ class DroneAssetAdmin(
             {
                 "fields": (
                     "price",
-                    "currency",
                     "invoice_no",
                     "invoice_date",
                     "provider",
                     "order_no",
+                    "annual_capex_budget",
+                    "annual_opex_budget",
+                    "budget_period_start",
                     "budget_info",
                     "property_of",
                 )

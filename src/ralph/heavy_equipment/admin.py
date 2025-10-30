@@ -57,6 +57,7 @@ class HeavyEquipmentOperationsView(RalphDetailViewAdmin):
         "deployed_on",
         "next_service_date",
         "next_service_hours",
+        "budget_status_display",
         "disposal_status_display",
     ]
 
@@ -252,8 +253,10 @@ class HeavyEquipmentAssetAdmin(
                     "acquisition_cost",
                     "lease_expiration",
                     "warranty_expiry",
+                    "annual_capex_budget",
+                    "annual_opex_budget",
+                    "budget_period_start",
                     "price",
-                    "currency",
                     "invoice_no",
                     "invoice_date",
                     "provider",

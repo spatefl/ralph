@@ -75,6 +75,7 @@ class FleetOperationsView(RalphDetailViewAdmin):
         "next_service_odometer",
         "last_telematics_at",
         "last_known_speed_kmh",
+        "budget_status_display",
         "disposal_status_display",
     ]
 
@@ -311,11 +312,13 @@ class FleetAssetAdmin(
             {
                 "fields": (
                     "price",
-                    "currency",
                     "invoice_no",
                     "invoice_date",
                     "provider",
                     "order_no",
+                    "annual_capex_budget",
+                    "annual_opex_budget",
+                    "budget_period_start",
                     "budget_info",
                     "property_of",
                 )

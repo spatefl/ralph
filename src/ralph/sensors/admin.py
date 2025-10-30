@@ -72,6 +72,7 @@ class SensorOperationsView(RalphDetailViewAdmin):
         "next_calibration_due",
         "communication_protocol",
         "power_source",
+        "budget_status_display",
         "disposal_status_display",
     ]
 
@@ -256,11 +257,13 @@ class SensorAssetAdmin(
             {
                 "fields": (
                     "price",
-                    "currency",
                     "invoice_no",
                     "invoice_date",
                     "provider",
                     "order_no",
+                    "annual_capex_budget",
+                    "annual_opex_budget",
+                    "budget_period_start",
                     "budget_info",
                     "property_of",
                 )
