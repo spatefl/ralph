@@ -51,6 +51,20 @@ from ralph.assets.models.assets import (
     Service,
     ServiceEnvironment,
 )
+from ralph.assets.models.assets import (
+    HeavyEquipmentDeploymentEntry,
+    HeavyEquipmentTelemetryReading,
+    HeavyEquipmentMaintenanceRecord,
+    HeavyEquipmentAssetIncident,
+    TrailerDeploymentEntry,
+    TrailerTelemetryReading,
+    TrailerMaintenanceRecord,
+    TrailerAssetIncident,
+    PowerDeploymentEntry,
+    PowerTelemetryReading,
+    PowerMaintenanceRecord,
+    PowerAssetIncident,
+)
 from ralph.assets.models.base import BaseObject
 from ralph.assets.models.components import (
     ComponentModel,
@@ -840,6 +854,69 @@ class TelemetryReadingAdmin(RalphAdmin):
     )
     raw_id_fields = ("base_object",)
     readonly_fields = ("ingested_at", "created", "modified")
+
+
+# Family-prefiltered proxy admin registrations (Heavy Equipment)
+@register(HeavyEquipmentDeploymentEntry)
+class HeavyEquipmentDeploymentEntryAdmin(DeploymentEntryAdmin):
+    pass
+
+
+@register(HeavyEquipmentTelemetryReading)
+class HeavyEquipmentTelemetryReadingAdmin(TelemetryReadingAdmin):
+    pass
+
+
+@register(HeavyEquipmentMaintenanceRecord)
+class HeavyEquipmentMaintenanceRecordAdmin(MaintenanceRecordAdmin):
+    pass
+
+
+@register(HeavyEquipmentAssetIncident)
+class HeavyEquipmentAssetIncidentAdmin(AssetIncidentAdmin):
+    pass
+
+
+# Family-prefiltered proxy admin registrations (Trailers)
+@register(TrailerDeploymentEntry)
+class TrailerDeploymentEntryAdmin(DeploymentEntryAdmin):
+    pass
+
+
+@register(TrailerTelemetryReading)
+class TrailerTelemetryReadingAdmin(TelemetryReadingAdmin):
+    pass
+
+
+@register(TrailerMaintenanceRecord)
+class TrailerMaintenanceRecordAdmin(MaintenanceRecordAdmin):
+    pass
+
+
+@register(TrailerAssetIncident)
+class TrailerAssetIncidentAdmin(AssetIncidentAdmin):
+    pass
+
+
+# Family-prefiltered proxy admin registrations (Power & Lighting)
+@register(PowerDeploymentEntry)
+class PowerDeploymentEntryAdmin(DeploymentEntryAdmin):
+    pass
+
+
+@register(PowerTelemetryReading)
+class PowerTelemetryReadingAdmin(TelemetryReadingAdmin):
+    pass
+
+
+@register(PowerMaintenanceRecord)
+class PowerMaintenanceRecordAdmin(MaintenanceRecordAdmin):
+    pass
+
+
+@register(PowerAssetIncident)
+class PowerAssetIncidentAdmin(AssetIncidentAdmin):
+    pass
 
 
 class TelemetryReadingInline(RalphTabularInline):

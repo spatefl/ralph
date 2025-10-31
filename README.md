@@ -1,4 +1,4 @@
-# Ralph
+# Sirius Asset Manager (sirius-ralph)
 
 ## Update - 2025/02
 
@@ -27,14 +27,16 @@ We sincerely appreciate all past contributions that have shaped Ralph into the p
 
 ## Overview
 
-Ralph is full-featured Asset Management, DCIM and CMDB system for data centers and back offices.
+Sirius Asset Manager is a domain-focused distribution of Ralph tailored for SC3. It keeps the proven DCIM/CMDB core and adds first-class management for Heavy Equipment, Trailers, Power & Lighting, Fleet, Drones, and Sensors — plus reporting, scheduling, and integration hooks used by SC3.
 
 Features:
 
-* keep track of assets purchases and their life cycle
-* flexible flow system for assets life cycle
-* data center and back office support
-* dc visualization built-in
+* end-to-end asset lifecycle (purchase → operation → maintenance → disposal)
+* flexible transitions/workflows with approvals and SLAs
+* new field operations families (heavy equipment, trailers, power & lighting, fleet, drones, sensors)
+* data center and back office support (upstream Ralph)
+* reporting APIs, scheduled digests, snapshots, and dashboards
+* integration hooks (webhooks/queues) for SC3 automations
 
 It is an Open Source project provided on Apache v2.0 License.
 
@@ -43,7 +45,7 @@ It is an Open Source project provided on Apache v2.0 License.
 [![Build Status](https://github.com/allegro/ralph/actions/workflows/main.yml/badge.svg)](https://github.com/allegro/ralph/actions/workflows/main.yml)
 [![Coverage Status](https://coveralls.io/repos/allegro/ralph/badge.svg?branch=ng&service=github)](https://coveralls.io/github/allegro/ralph?branch=ng)
 
-### Sirius Asset Manager (SC3) Local Prep Guide
+### Local Prep Guide
 
 The `sirius-custom` branch ships with a full dockerised stack that mirrors the service we embed inside SC3. To stand it up locally and verify the dark theme / branding before integration:
 
@@ -199,3 +201,138 @@ venv/bin/python -m django run_report_config <id> --dry-run
 ```
 
 Keep an RQ worker and scheduler running for automation (see Background workers & schedulers above).
+
+---
+
+## Using the new asset families
+
+Admin navigation (top navbar) exposes these families and their logs:
+
+- Heavy Equipment: classic machinery (excavators, dozers, cranes, forklifts, etc.).
+- Trailers: command, office, restroom, shower, laundry, sleeping quarters, medical, comms/fiber, water tank, storage, specialty.
+- Power & Lighting: generators, light towers, battery/solar packs, pumps/aux power.
+- Fleet, Drones, Sensors: vehicles, UAS, and IoT devices.
+
+Each family has four pre-filtered log pages:
+
+- Assignments (DeploymentEntry): where and with whom an asset is deployed, including shift rosters.
+- Usage Logs (TelemetryReading): runtime hours, odometer, fuel/levels, occupancy, etc.
+- Maintenance Logs (MaintenanceRecord/WorkOrder): open/closed work, SLA due dates, costs, parts.
+- Status Logs (AssetIncident): incidents with tasks and attachments.
+
+Quick start (Admin):
+
+1) Create or select an Asset Model, Service/Environment, and Budget as needed (Settings → Asset model/Service/etc.).
+2) Add an asset from the family’s “All …” menu, fill common fields (model, service, location) and family-specific fields (e.g., generator kW, trailer subtype).
+3) Operate the asset via Transitions (on the asset detail): Assign/Deploy, Start/Complete Maintenance, Refuel/Replenish, Retire/Dispose. Transitions log maintenance and status changes automatically.
+4) View Operations, Compliance, and Telemetry tabs on the asset detail to see recent actions, inspections, documents, and metrics.
+5) Log parts usage from MaintenanceRecord (inline) — stock auto-decrements and restock alerts can be raised.
+
+Notes
+
+- Operator certifications and digital checklists (DVIR/pre-flight/safety) can gate transitions; expired credentials block assignment until renewed.
+- Work Orders complement MaintenanceRecord when vendor approvals, SLAs, and sub-tasks are required.
+
+---
+
+## Reporting suite (cross-asset)
+
+Endpoints under `/api/reporting/` power dashboards and exports:
+
+- Inventory: portfolio by family, subtype, location, status.
+- Utilization/Downtime: runtime/availability, idle time, MTBF/MTTR, time-in-state.
+- Maintenance/Compliance: due/overdue work, risk score (status + severity + docs), costs.
+- Financial/Budget: capex vs opex, cost history, cost-per-hour, budgets and overruns.
+- Lifecycle/Disposal: retirements, disposal evidence completion.
+- Resources (water/fuel): consumption/supply and anomalies across families.
+
+Usage
+
+- Filter by `?family=heavy_equipment|trailers|power|fleet|drones|sensors` plus `?location=…&service=…&date_from=…&date_to=…`.
+- CSV export: append `?format=csv`.
+- Saved report configs: Admin → Assets → Saved report configurations. Scheduler emails results on cadence (see below).
+
+Legacy “Reports” pages updated
+
+The built-in admin report pages now include the new asset families in their filter bar:
+
+- Category model, Category model status, Manufacturer category model, Status model
+- Asset relations, Licence relations, Assets supports, Failures
+
+Switch the mode on each report to: Data Center, Back Office, Heavy Equipment, Trailers, Power & Lighting, Fleet, Drones, or Sensors as needed. Licensed software still primarily targets Back Office/Data Center; for other families, licence relations will list only universal (“all”) software.
+
+---
+
+## API and SC3 integration
+
+Base URL examples (authenticated via DRF token or session):
+
+- Assets (family lists):
+  - `/api/heavy-equipment/assets/`, `/api/trailers/assets/`, `/api/power/assets/`
+  - `/api/fleet/assets/`, `/api/drones/assets/`, `/api/sensors/assets/`
+
+- Telemetry ingest (JSON):
+  - `/api/telemetry/ingest/` — accepts `base_object`, `metric`, `value_numeric|value_text`, `captured_at`, and optional payload/units.
+
+- Reporting:
+  - `/api/reporting/inventory/`, `/api/reporting/utilization/`, `/api/reporting/maintenance-compliance/`, `/api/reporting/financial/`, `/api/reporting/lifecycle/`, `/api/reporting/resources/`
+
+Integration patterns with SC3
+
+1) Pull: SC3 dashboards call reporting endpoints on demand (JSON/CSV), scoped by project/location/family. Recommended for BI and in-app widgets.
+2) Push (webhooks/queues): Configure Admin → Assets → Integration Endpoints to deliver `AssetEventType` notifications (maintenance opened/closed, compliance due/overdue, status change, budget overrun) to SC3’s n8n/Celery endpoints or queues.
+3) Schedules: RQ-scheduler (or Celery beat) runs health checks and digests and can POST summaries to SC3 via Integration Endpoints.
+
+Security
+
+- Use DRF token auth or network isolation between Sirius and SC3. For webhooks, set shared secrets in Integration Endpoints and verify signatures in SC3 workflows.
+
+---
+
+## Background workers & schedulers
+
+Install and run workers for maintenance/compliance/budget/inventory jobs:
+
+```bash
+venv/bin/pip install rq-scheduler
+
+# one terminal: worker
+PYTHONPATH=src DJANGO_SETTINGS_MODULE=ralph.settings.prod venv/bin/python -m django rqworker default
+
+# another terminal: scheduler
+PYTHONPATH=src DJANGO_SETTINGS_MODULE=ralph.settings.prod venv/bin/python -m django rqscheduler --queue default
+```
+
+Jobs (management commands)
+
+- `schedule_maintenance`, `check_sla`, `check_compliance`, `check_inventory`, `check_asset_budgets`
+- `snapshot_asset_status_daily`, `snapshot_compliance_daily`, `snapshot_asset_costs_monthly`
+- `send_asset_digest`, `run_report_config`, `ingest_telemetry`
+
+---
+
+## Migrations and navigation
+
+Apply migrations and refresh the admin menu:
+
+```bash
+PYTHONPATH=src DJANGO_SETTINGS_MODULE=ralph.settings.prod venv/bin/python -m django migrate
+PYTHONPATH=src DJANGO_SETTINGS_MODULE=ralph.settings.prod venv/bin/python -m django sitetree_resync_apps
+```
+
+If the sitetree resync errors on DB connection, ensure your DB container is up and configured per environment settings, then rerun.
+
+---
+
+## Known gaps & next steps
+
+- Legacy “Reports” pages (Category/Manufacturer/Status, Asset/Licence relations, Assets supports, Failures) don’t include the new families. Prefer the new reporting APIs and dashboards. We’ll either extend or deprecate legacy pages in a future pass.
+- Ensure media storage is configured for document uploads (compliance/disposal/incident attachments) in production.
+- Secure telemetry ingest and integration endpoints (auth/signatures, rate limits) before exposing externally.
+- Optional: Celery/Redis alternative to RQ if you standardize on Celery in SC3.
+
+---
+
+## Branding note
+
+This distribution uses the “Sirius Asset Manager” name and navigation, while acknowledging and building on upstream Ralph. Where the UI or code references the upstream project, consider it a technical provenance rather than end-user branding.

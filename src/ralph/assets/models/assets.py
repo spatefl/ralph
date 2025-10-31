@@ -23,6 +23,7 @@ from ralph.admin.autocomplete import AutocompleteTooltipMixin
 from ralph.attachments.models import AttachmentItem
 from ralph.assets.models.base import BaseObject
 from ralph.assets.models.choices import ModelVisualizationLayout, ObjectModelType
+from django.contrib.contenttypes.models import ContentType
 from ralph.assets.notifications import AssetEventType, notify_asset_event
 from ralph.lib.custom_fields.models import CustomFieldMeta, WithCustomFieldsMixin
 from ralph.lib.dj_choices import Choices
@@ -2511,3 +2512,129 @@ class TelemetryReading(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
             raise ValidationError(
                 _("Provide either a numeric value or a textual value for telemetry readings.")
             )
+
+
+class _FilterByContentTypeManager(models.Manager):
+    def __init__(self, model_label: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._model_label = model_label
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        try:
+            app_label, model_name = self._model_label.split(".")
+            ct = ContentType.objects.get(app_label=app_label, model=model_name.lower())
+            return qs.filter(base_object__content_type=ct)
+        except Exception:
+            return qs.none()
+
+
+# Heavy Equipment filtered proxies
+class HeavyEquipmentDeploymentEntry(DeploymentEntry):
+    objects = _FilterByContentTypeManager("heavy_equipment.heavyequipmentasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Assignment (heavy equipment)")
+        verbose_name_plural = _("Assignments (heavy equipment)")
+
+
+class HeavyEquipmentTelemetryReading(TelemetryReading):
+    objects = _FilterByContentTypeManager("heavy_equipment.heavyequipmentasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Usage log (heavy equipment)")
+        verbose_name_plural = _("Usage logs (heavy equipment)")
+
+
+class HeavyEquipmentMaintenanceRecord(MaintenanceRecord):
+    objects = _FilterByContentTypeManager("heavy_equipment.heavyequipmentasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Maintenance log (heavy equipment)")
+        verbose_name_plural = _("Maintenance logs (heavy equipment)")
+
+
+class HeavyEquipmentAssetIncident(AssetIncident):
+    objects = _FilterByContentTypeManager("heavy_equipment.heavyequipmentasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Status log (heavy equipment)")
+        verbose_name_plural = _("Status logs (heavy equipment)")
+
+
+# Trailer filtered proxies
+class TrailerDeploymentEntry(DeploymentEntry):
+    objects = _FilterByContentTypeManager("trailers.trailerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Assignment (trailers)")
+        verbose_name_plural = _("Assignments (trailers)")
+
+
+class TrailerTelemetryReading(TelemetryReading):
+    objects = _FilterByContentTypeManager("trailers.trailerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Usage log (trailers)")
+        verbose_name_plural = _("Usage logs (trailers)")
+
+
+class TrailerMaintenanceRecord(MaintenanceRecord):
+    objects = _FilterByContentTypeManager("trailers.trailerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Maintenance log (trailers)")
+        verbose_name_plural = _("Maintenance logs (trailers)")
+
+
+class TrailerAssetIncident(AssetIncident):
+    objects = _FilterByContentTypeManager("trailers.trailerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Status log (trailers)")
+        verbose_name_plural = _("Status logs (trailers)")
+
+
+# Power & Lighting filtered proxies
+class PowerDeploymentEntry(DeploymentEntry):
+    objects = _FilterByContentTypeManager("power.powerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Assignment (power & lighting)")
+        verbose_name_plural = _("Assignments (power & lighting)")
+
+
+class PowerTelemetryReading(TelemetryReading):
+    objects = _FilterByContentTypeManager("power.powerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Usage log (power & lighting)")
+        verbose_name_plural = _("Usage logs (power & lighting)")
+
+
+class PowerMaintenanceRecord(MaintenanceRecord):
+    objects = _FilterByContentTypeManager("power.powerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Maintenance log (power & lighting)")
+        verbose_name_plural = _("Maintenance logs (power & lighting)")
+
+
+class PowerAssetIncident(AssetIncident):
+    objects = _FilterByContentTypeManager("power.powerasset")
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Status log (power & lighting)")
+        verbose_name_plural = _("Status logs (power & lighting)")

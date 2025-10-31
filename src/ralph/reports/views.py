@@ -28,6 +28,12 @@ from ralph.assets.services.reporting import (
     resource_report,
     resolve_asset_queryset,
 )
+from ralph.heavy_equipment.models import HeavyEquipmentAsset
+from ralph.trailers.models import TrailerAsset
+from ralph.power.models import PowerAsset
+from ralph.fleet.models import FleetAsset
+from ralph.drones.models import DroneAsset
+from ralph.sensors.models import SensorAsset
 
 logger = logging.getLogger(__name__)
 
@@ -72,23 +78,19 @@ class ReportDetail(RalphTemplateView):
     with_datacenters = False
     with_counter = True
     links = False
-    modes = [
-        {
-            "name": "all",
-            "verbose_name": _("All"),
-            "model": Asset,
-        },
-        {
-            "name": "dc",
-            "verbose_name": _("Only data center"),
-            "model": DataCenterAsset,
-        },
-        {
-            "name": "back_office",
-            "verbose_name": _("Only back office"),
-            "model": BackOfficeAsset,
-        },
-    ]
+    @property
+    def modes(self):
+        return [
+            {"name": "all", "verbose_name": _("All"), "model": Asset},
+            {"name": "dc", "verbose_name": _("Only data center"), "model": DataCenterAsset},
+            {"name": "back_office", "verbose_name": _("Only back office"), "model": BackOfficeAsset},
+            {"name": "heavy_equipment", "verbose_name": _("Heavy equipment"), "model": HeavyEquipmentAsset},
+            {"name": "trailers", "verbose_name": _("Trailers"), "model": TrailerAsset},
+            {"name": "power", "verbose_name": _("Power & lighting"), "model": PowerAsset},
+            {"name": "fleet", "verbose_name": _("Fleet"), "model": FleetAsset},
+            {"name": "drones", "verbose_name": _("Drones"), "model": DroneAsset},
+            {"name": "sensors", "verbose_name": _("Sensors"), "model": SensorAsset},
+        ]
 
     def __init__(self):
         self.report = ReportContainer()
@@ -189,7 +191,9 @@ class ReportWithoutAllModeDetail(object):
 
     @property
     def modes(self):
-        return ReportDetail.modes[1:]
+        # Expose all modes except the aggregated 'All'
+        base_modes = super().modes if hasattr(super(), "modes") else ReportDetail().modes
+        return base_modes[1:]
 
 
 class CategoryModelReport(ReportDetail):
@@ -199,7 +203,7 @@ class CategoryModelReport(ReportDetail):
     def prepare(self, model, *args, **kwargs):
         queryset = model.objects
         queryset = (
-            queryset.select_related("model", "category")
+            queryset.select_related("model", "model__category")
             .values(
                 "model__category__name",
                 "model__name",
@@ -224,7 +228,7 @@ class CategoryModelStatusReport(ReportWithoutAllModeDetail, ReportDetail):
     def prepare(self, model, *args, **kwargs):
         queryset = model.objects
         queryset = (
-            queryset.select_related("model", "category")
+            queryset.select_related("model", "model__category")
             .values(
                 "model__category__name",
                 "model__name",
@@ -256,10 +260,19 @@ class ManufacturerCategoryModelReport(ReportDetail):
 
     def prepare(self, model, *args, **kwargs):
         queryset = AssetModel.objects
-        if model._meta.object_name == "BackOfficeAsset":
+        model_name = model._meta.object_name
+        if model_name == "BackOfficeAsset":
             queryset = queryset.filter(type=ObjectModelType.back_office)
-        if model._meta.object_name == "DataCenterAsset":
+        elif model_name == "DataCenterAsset":
             queryset = queryset.filter(type=ObjectModelType.data_center)
+        elif model_name in {"HeavyEquipmentAsset", "TrailerAsset", "PowerAsset"}:
+            queryset = queryset.filter(type=ObjectModelType.heavy_equipment)
+        elif model_name == "FleetAsset":
+            queryset = queryset.filter(type=ObjectModelType.fleet)
+        elif model_name == "DroneAsset":
+            queryset = queryset.filter(type=ObjectModelType.drone)
+        elif model_name == "SensorAsset":
+            queryset = queryset.filter(type=ObjectModelType.sensor)
 
         queryset = (
             queryset.select_related(
@@ -295,7 +308,7 @@ class StatusModelReport(ReportWithoutAllModeDetail, ReportDetail):
 
     def prepare(self, model, dc=None):
         queryset = model.objects
-        if dc:
+        if dc and model is DataCenterAsset:
             queryset = queryset.filter(rack__server_room__data_center=dc)
 
         queryset = queryset.values(
@@ -391,14 +404,40 @@ class AssetRelationsReport(BaseRelationsReport):
         "region",
         "property_of",
     ]
+    generic_headers = [
+        "id",
+        "niw",
+        "barcode",
+        "sn",
+        "model__category__name",
+        "model__manufacturer__name",
+        "model__name",
+        "status",
+        "service_env__service__name",
+        "invoice_date",
+        "invoice_no",
+        "hostname",
+    ]
+    generic_select_related = [
+        "model",
+        "model__category",
+        "model__manufacturer",
+        "service_env",
+        "service_env__service",
+        "property_of",
+    ]
 
     def prepare(self, model, *args, **kwargs):
         queryset = model.objects.prefetch_related("tags")
-        headers = self.bo_headers
-        select_related = self.bo_select_related
-        if model._meta.object_name == "DataCenterAsset":
+        headers = self.generic_headers
+        select_related = self.generic_select_related
+        model_name = model._meta.object_name
+        if model_name == "DataCenterAsset":
             headers = self.dc_headers
             select_related = self.dc_select_related
+        elif model_name == "BackOfficeAsset":
+            headers = self.bo_headers
+            select_related = self.bo_select_related
 
         yield headers + self.extra_headers
         for asset in queryset.select_related(*select_related):
@@ -479,7 +518,8 @@ class AssetSupportsReport(BaseRelationsReport):
         )
         headers = []
         select_related = []
-        if model._meta.object_name == "DataCenterAsset":
+        model_name = model._meta.object_name
+        if model_name == "DataCenterAsset":
             headers = self.dc_headers
             select_related = self.dc_select_related
             queryset = queryset.filter(
@@ -487,13 +527,20 @@ class AssetSupportsReport(BaseRelationsReport):
                     DataCenterAsset
                 )
             )
-        elif model._meta.object_name == "BackOfficeAsset":
+        elif model_name == "BackOfficeAsset":
             headers = self.bo_headers
             select_related = self.bo_select_related
             queryset = queryset.filter(
                 baseobject__content_type=ContentType.objects.get_for_model(
                     BackOfficeAsset
                 )
+            )
+        else:
+            # Generic support export for other families
+            headers = self.bo_headers  # reuse minimal asset fields subset
+            select_related = []  # keep default select_related to avoid invalid joins
+            queryset = queryset.filter(
+                baseobject__content_type=ContentType.objects.get_for_model(model)
             )
 
         yield headers + self.extra_headers
@@ -575,7 +622,8 @@ class LicenceRelationsReport(BaseRelationsReport):
     def prepare(self, model, *args, **kwargs):
         queryset = Licence.objects.select_related("region", "software")
         asset_related = [None]
-        if model._meta.object_name == "BackOfficeAsset":
+        model_name = model._meta.object_name
+        if model_name == "BackOfficeAsset":
             queryset = queryset.filter(
                 software__asset_type__in=(
                     ObjectModelType.back_office,
@@ -589,11 +637,17 @@ class LicenceRelationsReport(BaseRelationsReport):
                 "base_object__asset__backofficeasset__owner",
                 "base_object__asset__backofficeasset__region",
             ]
-        if model._meta.object_name == "DataCenterAsset":
+        elif model_name == "DataCenterAsset":
             queryset = queryset.filter(software__asset_type=ObjectModelType.data_center)
             asset_related = [
                 "base_object__asset",
                 "base_object__asset__backofficeasset",
+            ]
+        else:
+            # For other families, treat as 'all' software scope and only follow base asset
+            queryset = queryset.filter(software__asset_type__in=(ObjectModelType.all,))
+            asset_related = [
+                "base_object__asset",
             ]
 
         fill_empty_assets = [""] * len(self.licences_asset_headers)
