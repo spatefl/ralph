@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
+import os
+import sys
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -194,4 +196,29 @@ def ensure_periodic_jobs():
         scheduler.cancel(job)
 
 
-ensure_periodic_jobs()
+def _should_autoregister() -> bool:
+    if not _is_enabled():
+        return False
+    # Allow disabling during image builds or certain commands
+    if os.environ.get("DISABLE_RQ_SCHEDULER") == "1":
+        return False
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    skip_cmds = {
+        "collectstatic",
+        "makemigrations",
+        "migrate",
+        "check",
+        "compilemessages",
+        "test",
+        "shell",
+        "loaddata",
+        "dumpdata",
+    }
+    if cmd in skip_cmds:
+        return False
+    # Default to enabled unless explicitly turned off
+    return os.environ.get("ASSETS_SCHEDULER_AUTOREGISTER", "1") == "1"
+
+
+if _should_autoregister():
+    ensure_periodic_jobs()
