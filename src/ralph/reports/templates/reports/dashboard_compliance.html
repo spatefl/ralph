@@ -1,0 +1,57 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} | {{ site_title|default:_('Ralph') }}{% endblock %}
+
+{% block content %}
+<h1>{{ page_title }}</h1>
+<p class="help">{% trans "Assets analysed" %}: {{ asset_count }}</p>
+
+<section class="module">
+  <h2>{% trans "Maintenance KPI" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "Open" %}</strong>: {{ report_data.maintenance.open }}</li>
+    <li><strong>{% trans "Overdue" %}</strong>: {{ report_data.maintenance.overdue }}</li>
+    <li><strong>{% trans "Due within 7 days" %}</strong>: {{ report_data.maintenance.due_within_7d }}</li>
+    <li><strong>{% trans "Total records" %}</strong>: {{ report_data.maintenance.total }}</li>
+  </ul>
+</section>
+
+<section class="module">
+  <h2>{% trans "Compliance KPI" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "Compliant" %}</strong>: {{ report_data.compliance.compliant }}</li>
+    <li><strong>{% trans "Due soon" %}</strong>: {{ report_data.compliance.due_soon }}</li>
+    <li><strong>{% trans "Overdue" %}</strong>: {{ report_data.compliance.overdue }}</li>
+    <li><strong>{% trans "Total" %}</strong>: {{ report_data.compliance.total }}</li>
+  </ul>
+</section>
+
+<section class="module">
+  <h2>{% trans "Lifecycle status" %}</h2>
+  <table class="listtable">
+    <thead><tr><th>{% trans "Status" %}</th><th>{% trans "Count" %}</th></tr></thead>
+    <tbody>
+      {% for row in report_data.lifecycle %}
+        <tr><td>{{ row.status }}</td><td>{{ row.count }}</td></tr>
+      {% empty %}
+        <tr><td colspan="2">{% trans "No data" %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="module">
+  <h2>{% trans "Disposal pipeline" %}</h2>
+  <table class="listtable">
+    <thead><tr><th>{% trans "Stage" %}</th><th>{% trans "Assets" %}</th></tr></thead>
+    <tbody>
+      {% for row in report_data.disposal %}
+        <tr><td>{{ row.status }}</td><td>{{ row.count }}</td></tr>
+      {% empty %}
+        <tr><td colspan="2">{% trans "No data" %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

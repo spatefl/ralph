@@ -8,6 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, Sum
 from django.template import Library
 from django.urls import NoReverseMatch, reverse
+from django.core.cache import cache
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
@@ -36,11 +37,27 @@ from ralph.assets.models import (
     ComplianceRecord,
     DeploymentEntry,
 )
+from ralph.heavy_equipment.models import HeavyEquipmentAsset, HeavyEquipmentType
+from ralph.trailers.models import TrailerAsset
+from ralph.power.models import PowerAsset
+from ralph.assets.services.analytics import (
+    aggregate_metrics,
+    trailer_status_metrics,
+    power_utilization_metrics,
+)
 from ralph.back_office.models import BackOfficeAsset
 from ralph.data_center.models import DataCenter, DataCenterAsset, Rack, RackAccessory
 
 register = Library()
 COLORS = ["green", "blue", "purple", "orange", "red", "pink"]
+
+
+def get_cached_metrics(cache_key, builder, timeout=300):
+    data = cache.get(cache_key)
+    if data is None:
+        data = builder()
+        cache.set(cache_key, data, timeout)
+    return data
 
 
 def get_user_equipment_tile_data(user):
@@ -212,6 +229,13 @@ def ralph_summary(context):
     ]
     results = []
     overview_tiles = []
+    supplemental_tiles = []
+    trailer_metrics = get_cached_metrics(
+        "dashboard:trailer_metrics", trailer_status_metrics, timeout=180
+    )
+    power_metrics = get_cached_metrics(
+        "dashboard:power_metrics", power_utilization_metrics, timeout=180
+    )
     for model_name in models:
         app, model = model_name.split(".")
         model = apps.get_model(app, model)
@@ -243,9 +267,13 @@ def ralph_summary(context):
         }
 
     category_tiles = []
+    trailer_changelist_url = None
+    power_changelist_url = None
 
     def build_lifecycle_meta(queryset):
-        base_ids = queryset.values_list("id", flat=True)
+        base_ids = list(queryset.values_list("id", flat=True))
+        if not base_ids:
+            return []
         maintenance_overdue = (
             MaintenanceRecord.objects.overdue()
             .filter(base_object_id__in=base_ids)
@@ -300,6 +328,25 @@ def ralph_summary(context):
             },
         ]
 
+        analytics = aggregate_metrics(queryset[:100])
+        if analytics.get("asset_count"):
+            mttr = round(analytics.get("mttr_hours", 0.0), 1)
+            mtbf = round(analytics.get("mtbf_hours", 0.0), 1)
+            meta.append(
+                {
+                    "label": _("Avg MTTR (h)"),
+                    "value": mttr,
+                    "class": "info" if mttr else "",
+                }
+            )
+            meta.append(
+                {
+                    "label": _("Avg MTBF (h)"),
+                    "value": mtbf,
+                    "class": "info" if mtbf else "",
+                }
+            )
+
         # show only metrics with non-zero value or the first three if all zero
         significant_meta = [item for item in meta if item["value"]]
         if not significant_meta:
@@ -308,6 +355,8 @@ def ralph_summary(context):
 
     asset_tiles = [
         ("heavy_equipment", "HeavyEquipmentAsset", _("Heavy Equipment"), "heavy-equipment"),
+        ("trailers", "TrailerAsset", _("Trailers"), "trailers"),
+        ("power", "PowerAsset", _("Power & Lighting"), "power-lighting"),
         ("fleet", "FleetAsset", _("Fleet Assets"), "fleet-assets"),
         ("drones", "DroneAsset", _("Drones"), "drones"),
         ("sensors", "SensorAsset", _("Sensors"), "sensors"),
@@ -330,7 +379,52 @@ def ralph_summary(context):
         except NoReverseMatch:
             continue
         queryset = model.objects.all()
+        if model is HeavyEquipmentAsset:
+            queryset = queryset.filter(equipment_type__in=HeavyEquipmentAsset.MACHINERY_TYPES)
+        elif model is TrailerAsset:
+            queryset = queryset.filter(equipment_type=HeavyEquipmentType.TRAILER)
+            trailer_changelist_url = changelist_url
+        elif model is PowerAsset:
+            queryset = queryset.filter(
+                equipment_type__in={
+                    HeavyEquipmentType.GENERATOR,
+                    HeavyEquipmentType.LIGHT_TOWER,
+                    HeavyEquipmentType.PUMP,
+                }
+            )
+            power_changelist_url = changelist_url
         meta = build_lifecycle_meta(queryset)
+        if model is TrailerAsset and trailer_metrics.get("total"):
+            meta.extend(
+                [
+                    {
+                        "label": _("Available"),
+                        "value": trailer_metrics["available"],
+                        "class": "info" if trailer_metrics["available"] else "",
+                    },
+                    {
+                        "label": _("Occupied"),
+                        "value": trailer_metrics["occupied"],
+                        "class": "warning" if trailer_metrics["occupied"] else "",
+                    },
+                ]
+            )
+        if model is PowerAsset and power_metrics.get("total"):
+            meta.extend(
+                [
+                    {
+                        "label": _("Avg runtime (h)"),
+                        "value": "{:.0f}".format(power_metrics["average_runtime_hours"]),
+                        "class": "info" if power_metrics["average_runtime_hours"] else "",
+                    },
+                    {
+                        "label": _("Avg fuel (%)"),
+                        "value": "{:.0f}%".format(power_metrics["average_fuel_percent"]),
+                        "class": "warning" if power_metrics["average_fuel_percent"] and power_metrics["average_fuel_percent"] < 40 else "",
+                    },
+                ]
+            )
+        meta = meta[:5]
         category_tiles.append(
             build_tile(
                 label=label,
@@ -341,7 +435,62 @@ def ralph_summary(context):
             )
         )
 
+    if trailer_changelist_url and trailer_metrics.get("total"):
+        supplemental_tiles.append(
+            build_tile(
+                label=_("Trailer Occupancy"),
+                count="{:.0f}%".format(trailer_metrics["average_occupancy_percent"]),
+                url=trailer_changelist_url,
+                css_class="trailer-occupancy",
+                meta=[
+                    {
+                        "label": _("Occupied"),
+                        "value": trailer_metrics["occupied"],
+                        "class": "warning" if trailer_metrics["occupied"] else "",
+                    },
+                    {
+                        "label": _("Available"),
+                        "value": trailer_metrics["available"],
+                        "class": "info" if trailer_metrics["available"] else "",
+                    },
+                    {
+                        "label": _("Servicing"),
+                        "value": trailer_metrics["servicing"],
+                        "class": "alert" if trailer_metrics["servicing"] else "",
+                    },
+                ],
+            )
+        )
+
+    if power_changelist_url and power_metrics.get("types"):
+        for item in power_metrics["types"]:
+            supplemental_tiles.append(
+                build_tile(
+                    label=_("{} Utilization").format(item["label"]),
+                    count=item["deployed"],
+                    url="{}?power_asset_type={}".format(power_changelist_url, item["value"]),
+                    css_class=f"power-{slugify(item['value'])}",
+                    meta=[
+                        {
+                            "label": _("In fleet"),
+                            "value": item["count"],
+                        },
+                        {
+                            "label": _("Avg runtime (h)"),
+                            "value": "{:.0f}".format(item["average_runtime_hours"]),
+                            "class": "info" if item["average_runtime_hours"] else "",
+                        },
+                        {
+                            "label": _("Avg fuel (%)"),
+                            "value": "{:.0f}%".format(item["average_fuel_percent"]),
+                            "class": "warning" if item["average_fuel_percent"] and item["average_fuel_percent"] < 35 else "",
+                        },
+                    ],
+                )
+            )
+
     results.extend(category_tiles)
+    results.extend(supplemental_tiles)
     results.extend(overview_tiles)
 
     results.append(get_user_equipment_tile_data(user=user))

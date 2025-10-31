@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} | {{ site_title|default:_('Ralph') }}{% endblock %}
+
+{% block content %}
+<h1>{{ page_title }}</h1>
+<p class="help">{% trans "Assets analysed" %}: {{ asset_count }}</p>
+
+<section class="module">
+  <h2>{% trans "Period" %}</h2>
+  <p>{{ report_data.period.start }} – {{ report_data.period.end }}</p>
+</section>
+
+<section class="module">
+  <h2>{% trans "Totals" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "CAPEX" %}</strong>: {{ report_data.totals.capex }}</li>
+    <li><strong>{% trans "OPEX" %}</strong>: {{ report_data.totals.opex }}</li>
+    <li><strong>{% trans "Maintenance" %}</strong>: {{ report_data.totals.maintenance }}</li>
+    <li><strong>{% trans "Parts" %}</strong>: {{ report_data.totals.parts }}</li>
+    <li><strong>{% trans "Fuel spend" %}</strong>: {{ report_data.totals.fuel }}</li>
+  </ul>
+</section>
+
+<section class="module">
+  <h2>{% trans "Asset detail" %}</h2>
+  <table class="listtable">
+    <thead>
+      <tr>
+        <th>{% trans "Asset" %}</th>
+        <th>{% trans "CAPEX" %}</th>
+        <th>{% trans "OPEX" %}</th>
+        <th>{% trans "Fuel" %}</th>
+        <th>{% trans "Active hours" %}</th>
+        <th>{% trans "Cost/hour" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report_data.assets|dictsortreversed:"opex_actual"|slice:":10" %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ row.capex_actual }}</td>
+          <td>{{ row.opex_actual }}</td>
+          <td>{{ row.fuel_actual }}</td>
+          <td>{{ row.active_hours }}</td>
+          <td>{{ row.cost_per_hour|floatformat:2 }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">{% trans "No data" %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

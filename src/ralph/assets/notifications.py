@@ -6,6 +6,8 @@ from django.utils import timezone
 
 from ralph.lib.hooks import get_hook
 
+from ralph.assets.services.integration_dispatch import queue_external_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +23,12 @@ class AssetEventType(str, Enum):
     COMPLIANCE_DUE = "compliance.due"
     REFUEL_LOGGED = "maintenance.refuel"
     DISPOSAL_PENDING = "disposal.pending"
+    BUDGET_OVERRUN = "budget.overrun"
     APPROVAL_REQUIRED = "approval.required"
+    INVENTORY_LOW = "inventory.low"
+    INVENTORY_REORDER = "inventory.reorder"
+    INCIDENT_REPORTED = "incident.reported"
+    SAFETY_CHECKLIST_REQUIRED = "safety.checklist_required"
 
 
 def default_dispatcher(asset: Any, event: Dict[str, Any]) -> None:
@@ -62,6 +69,7 @@ def notify_asset_event(
 
     try:
         dispatcher(asset=asset, event=event)
+        queue_external_event(event)
         return True
     except Exception:  # pragma: no cover - defensive logging
         logger.exception("Failed to dispatch asset notification", extra=event)

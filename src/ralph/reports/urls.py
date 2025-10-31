@@ -42,4 +42,24 @@ urlpatterns = [
         views.AssetSupportsReport.as_view(),
         name="assets-supports",
     ),
+    re_path(
+        r"^dashboard/operations/?$",
+        views.OperationsDashboardView.as_view(),
+        name="operations-dashboard",
+    ),
+    re_path(
+        r"^dashboard/compliance/?$",
+        views.ComplianceDashboardView.as_view(),
+        name="compliance-dashboard",
+    ),
+    re_path(
+        r"^dashboard/finance/?$",
+        views.FinanceDashboardView.as_view(),
+        name="finance-dashboard",
+    ),
+    re_path(
+        r"^resources/?$",
+        views.ResourceReportView.as_view(),
+        name="resource-report",
+    ),
 ]

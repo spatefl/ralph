@@ -91,6 +91,8 @@ INSTALLED_APPS = (
     "ralph.drones",
     "ralph.sensors",
     "ralph.heavy_equipment",
+    "ralph.trailers",
+    "ralph.power",
     "ralph.configuration_management",
     "ralph.dashboards",
     "ralph.data_center",
@@ -447,6 +449,31 @@ RALPH_INTERNAL_SERVICES = {
         "method": "ralph.lib.transitions.async.run_async_transition",
     }
 }
+
+ASSETS_SCHEDULER_ENABLED = bool_from_env("ASSETS_SCHEDULER_ENABLED", True)
+ASSETS_SCHEDULER_QUEUE = os.environ.get("ASSETS_SCHEDULER_QUEUE", "default")
+ASSETS_SCHEDULER_MAINTENANCE_INTERVAL = int(
+    os.environ.get("ASSETS_SCHEDULER_MAINTENANCE_INTERVAL", "3600")
+)
+ASSETS_SCHEDULER_COMPLIANCE_INTERVAL = int(
+    os.environ.get("ASSETS_SCHEDULER_COMPLIANCE_INTERVAL", "86400")
+)
+ASSETS_SCHEDULER_BUDGET_INTERVAL = int(
+    os.environ.get("ASSETS_SCHEDULER_BUDGET_INTERVAL", "86400")
+)
+ASSETS_SCHEDULER_INVENTORY_INTERVAL = int(
+    os.environ.get("ASSETS_SCHEDULER_INVENTORY_INTERVAL", "21600")
+)
+ASSETS_SCHEDULER_DIGEST_INTERVAL = int(
+    os.environ.get("ASSETS_SCHEDULER_DIGEST_INTERVAL", "604800")
+)
+ASSETS_SCHEDULER_SLA_INTERVAL = int(
+    os.environ.get("ASSETS_SCHEDULER_SLA_INTERVAL", "3600")
+)
+ASSETS_SCHEDULER_FORECAST_INTERVAL = int(
+    os.environ.get("ASSETS_SCHEDULER_FORECAST_INTERVAL", "43200")
+)
+ASSETS_INTEGRATION_QUEUE = os.environ.get("ASSETS_INTEGRATION_QUEUE", "default")
 
 # =============================================================================
 # DC view

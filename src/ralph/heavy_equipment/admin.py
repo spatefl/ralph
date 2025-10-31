@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -16,15 +17,23 @@ from ralph.assets.admin import (
     ComplianceRecordInline,
     DeploymentEntryInline,
     TelemetryReadingInline,
+    SafetyChecklistEntryInline,
+    AssetIncidentInline,
+    WorkOrderInline,
 )
 from ralph.heavy_equipment.models import (
     HEAVY_EQUIPMENT_GROUP_MAP,
     HeavyEquipmentAsset,
     HeavyEquipmentFunctionalGroup,
     HeavyEquipmentDebrisRemoval,
-    HeavyEquipmentPowerGeneration,
-    HeavyEquipmentWaterManagement,
     HeavyEquipmentMaterialHandling,
+    HeavyEquipmentType,
+    ExcavatorAsset,
+    BulldozerAsset,
+    LoaderAsset,
+    CraneAsset,
+    ForkliftAsset,
+    OtherHeavyEquipmentAsset,
 )
 from ralph.lib.custom_fields.admin import CustomFieldValueAdminMixin
 from ralph.lib.mixins.forms import AssetFormMixin, PriceFormMixin
@@ -39,6 +48,14 @@ class HeavyEquipmentAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.fo
         service_env_field = self.fields.get("service_env")
         if service_env_field:
             service_env_field.required = False
+        equipment_field = self.fields.get("equipment_type")
+        if equipment_field:
+            equipment_field.choices = [
+                choice
+                for choice in equipment_field.choices
+                if not choice[0]
+                or choice[0] in HeavyEquipmentAsset.MACHINERY_TYPES
+            ]
 
 
 class HeavyEquipmentOperationsView(RalphDetailViewAdmin):
@@ -46,19 +63,23 @@ class HeavyEquipmentOperationsView(RalphDetailViewAdmin):
     name = "operations"
     label = _("Operations")
     url_name = "operations"
-    inlines = [MaintenanceRecordInline, DeploymentEntryInline]
+    inlines = [
+        MaintenanceRecordInline,
+        WorkOrderInline,
+        DeploymentEntryInline,
+        SafetyChecklistEntryInline,
+        AssetIncidentInline,
+        TelemetryReadingInline,
+    ]
     summary_fields = [
         "status",
         "deployment_status",
-        "deployment_site",
-        "assigned_location",
         "hours_used",
-        "odometer_km",
-        "deployed_on",
+        "fuel_level_percent",
+        "water_level_percent",
+        "battery_level_percent",
         "next_service_date",
         "next_service_hours",
-        "budget_status_display",
-        "disposal_status_display",
     ]
 
 
@@ -286,6 +307,10 @@ class HeavyEquipmentAssetAdmin(
         self.change_views = list(self.change_views or [])
         super().__init__(*args, **kwargs)
 
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.filter(equipment_type__in=HeavyEquipmentAsset.MACHINERY_TYPES)
+
     @admin.display(description=_("Maintenance"))
     def maintenance_status(self, obj):
         open_statuses = [
@@ -336,16 +361,60 @@ class HeavyEquipmentDebrisRemovalAdmin(HeavyEquipmentGroupAdmin):
     functional_group_filter = HeavyEquipmentFunctionalGroup.debris_removal.id
 
 
-@register(HeavyEquipmentPowerGeneration)
-class HeavyEquipmentPowerGenerationAdmin(HeavyEquipmentGroupAdmin):
-    functional_group_filter = HeavyEquipmentFunctionalGroup.power_generation.id
-
-
-@register(HeavyEquipmentWaterManagement)
-class HeavyEquipmentWaterManagementAdmin(HeavyEquipmentGroupAdmin):
-    functional_group_filter = HeavyEquipmentFunctionalGroup.water_management.id
-
-
 @register(HeavyEquipmentMaterialHandling)
 class HeavyEquipmentMaterialHandlingAdmin(HeavyEquipmentGroupAdmin):
     functional_group_filter = HeavyEquipmentFunctionalGroup.material_handling.id
+
+
+class HeavyEquipmentTypeAdmin(HeavyEquipmentAssetAdmin):
+    equipment_type_filter = None
+    change_views = []
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        if self.equipment_type_filter:
+            return queryset.filter(equipment_type=self.equipment_type_filter)
+        return queryset.none()
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if self.equipment_type_filter and "equipment_type" in form.base_fields:
+            field = form.base_fields["equipment_type"]
+            field.initial = self.equipment_type_filter
+            field.widget = forms.HiddenInput()
+        return form
+
+    def save_model(self, request, obj, form, change):
+        if self.equipment_type_filter:
+            obj.equipment_type = self.equipment_type_filter
+        super().save_model(request, obj, form, change)
+
+
+@register(ExcavatorAsset)
+class ExcavatorAssetAdmin(HeavyEquipmentTypeAdmin):
+    equipment_type_filter = HeavyEquipmentType.EXCAVATOR
+
+
+@register(BulldozerAsset)
+class BulldozerAssetAdmin(HeavyEquipmentTypeAdmin):
+    equipment_type_filter = HeavyEquipmentType.BULLDOZER
+
+
+@register(LoaderAsset)
+class LoaderAssetAdmin(HeavyEquipmentTypeAdmin):
+    equipment_type_filter = HeavyEquipmentType.LOADER
+
+
+@register(CraneAsset)
+class CraneAssetAdmin(HeavyEquipmentTypeAdmin):
+    equipment_type_filter = HeavyEquipmentType.CRANE
+
+
+@register(ForkliftAsset)
+class ForkliftAssetAdmin(HeavyEquipmentTypeAdmin):
+    equipment_type_filter = HeavyEquipmentType.FORKLIFT
+
+
+@register(OtherHeavyEquipmentAsset)
+class OtherHeavyEquipmentAssetAdmin(HeavyEquipmentTypeAdmin):
+    equipment_type_filter = HeavyEquipmentType.OTHER

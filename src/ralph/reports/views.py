@@ -20,6 +20,14 @@ from ralph.licences.models import BaseObjectLicence, Licence, LicenceUser
 from ralph.operations.models import Failure, OperationType
 from ralph.reports.base import ReportContainer
 from ralph.supports.models import BaseObjectsSupport
+from ralph.assets.services.reporting import (
+    AssetFilters,
+    compliance_dashboard,
+    finance_dashboard,
+    operations_dashboard,
+    resource_report,
+    resolve_asset_queryset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -670,3 +678,90 @@ class FailureReport(ReportWithoutAllModeDetail, ReportDetail):
                 parent=parent,
                 unique=False,
             )
+
+
+class BaseReportingDashboardView(RalphTemplateView):
+    template_name = "reports/dashboard_operations.html"
+    page_title = ""
+    subsection = ""
+    active_sidebar_item = "Reports"
+
+    def get_filters(self) -> AssetFilters:
+        params = self.request.GET
+        return AssetFilters(
+            model_label=params.get("model") or params.get("asset_model"),
+            service_env=params.get("service_env"),
+            owner=params.get("owner"),
+            user=params.get("user"),
+            region=params.get("region"),
+            status=params.get("status"),
+            deployment_status=params.get("deployment_status"),
+            location=params.get("location"),
+            project=params.get("project"),
+        )
+
+    def get_queryset(self):
+        filters = self.get_filters()
+        queryset, model = resolve_asset_queryset(filters)
+        try:
+            limit = int(self.request.GET.get("limit", 500))
+        except ValueError:
+            limit = 500
+        if limit > 0:
+            asset_ids = list(queryset.values_list("pk", flat=True)[:limit])
+            queryset = queryset.filter(pk__in=asset_ids)
+        return queryset, model
+
+    def get_report_data(self, queryset, model):  # pragma: no cover - interface
+        raise NotImplementedError()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        queryset, model = self.get_queryset()
+        report_data = self.get_report_data(queryset, model)
+        context.update(
+            {
+                "page_title": self.page_title,
+                "report_data": report_data,
+                "asset_count": queryset.count(),
+                "filters": self.request.GET,
+                "subsection": self.subsection,
+            }
+        )
+        return context
+
+
+class OperationsDashboardView(BaseReportingDashboardView):
+    template_name = "reports/dashboard_operations.html"
+    page_title = _("Operations dashboard")
+    subsection = "operations-dashboard"
+
+    def get_report_data(self, queryset, model):
+        return operations_dashboard(queryset, model)
+
+
+class ComplianceDashboardView(BaseReportingDashboardView):
+    template_name = "reports/dashboard_compliance.html"
+    page_title = _("Compliance dashboard")
+    subsection = "compliance-dashboard"
+
+    def get_report_data(self, queryset, model):
+        return compliance_dashboard(queryset, model)
+
+
+class FinanceDashboardView(BaseReportingDashboardView):
+    template_name = "reports/dashboard_finance.html"
+    page_title = _("Finance dashboard")
+    subsection = "finance-dashboard"
+
+    def get_report_data(self, queryset, model):
+        return finance_dashboard(queryset)
+
+
+class ResourceReportView(BaseReportingDashboardView):
+    template_name = "reports/resource_report.html"
+    page_title = _("Resource metrics")
+    subsection = "resource-report"
+
+    def get_report_data(self, queryset, model):
+        return resource_report(queryset)

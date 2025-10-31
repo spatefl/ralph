@@ -9,6 +9,8 @@ from ralph.assets.models import (
     ComplianceRecord,
     DeploymentEntry,
     TelemetryReading,
+    SafetyChecklistEntry,
+    AssetIncident,
 )
 from ralph.assets.api.views import base_object_descendant_prefetch_related
 from ralph.sensors.admin import SensorAssetAdmin
@@ -55,11 +57,28 @@ class SensorAssetViewSet(RalphAPIViewSet):
         ),
         Prefetch(
             "deployment_entries",
-            queryset=DeploymentEntry.objects.order_by("-started_at", "-pk"),
+            queryset=DeploymentEntry.objects.order_by("-started_at", "-pk").prefetch_related(
+                "assignments__user",
+                "telemetry_events",
+            ),
         ),
         Prefetch(
             "telemetry_readings",
-            queryset=TelemetryReading.objects.order_by("-captured_at", "-ingested_at"),
+            queryset=TelemetryReading.objects.select_related("deployment_entry").order_by(
+                "-captured_at", "-ingested_at"
+            ),
+        ),
+        Prefetch(
+            "safety_checklists",
+            queryset=SafetyChecklistEntry.objects.select_related("template", "completed_by").prefetch_related(
+                "responses__item"
+            ),
+        ),
+        Prefetch(
+            "incidents",
+            queryset=AssetIncident.objects.select_related("reported_by", "assigned_to").prefetch_related(
+                "tasks"
+            ),
         ),
         "disposal_record__tasks",
     ]

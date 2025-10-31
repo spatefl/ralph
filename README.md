@@ -145,3 +145,57 @@ Visit our documentation on [readthedocs.org](https://ralph-ng.readthedocs.org)
 ## Getting help
 
 * Online forum for Ralph community: https://ralph.discourse.group
+
+
+## New in sirius-ralph (2025 Q3–Q4)
+
+This branch adds a broad set of asset-management and reporting capabilities on top of upstream Ralph:
+
+- Asset taxonomy and admin navigation
+  - Heavy Equipment constrained to classic machinery; new top-level sections for Trailers and Power & Lighting.
+  - Submenus for subtypes (e.g., Command/Office/Restroom trailers; Generators/Light Towers/Battery Packs/Pumps) open filtered lists; edit forms hide fixed type/subtype fields.
+
+- Lifecycle & operations
+  - Work orders (WorkOrder + WorkOrderTask) sit alongside MaintenanceRecord for vendor/SLA approvals and costs.
+  - Heavy Equipment operations tab shows Work Orders inline; other families can adopt the same inline.
+
+- Telemetry & utilization adapters
+  - Utilization endpoints now include availability-based KPIs when telemetry is absent (Data Center / Back Office). Each asset reports availability_rate; summaries add average_availability_rate.
+
+- Reporting & dashboards
+  - REST endpoints at `/api/reporting/`: `inventory`, `utilization`, `maintenance-compliance`, `lifecycle`, `financial`, `resources`.
+  - Role dashboards: `dashboard/operations`, `dashboard/compliance`, `dashboard/finance`.
+  - CSV export via `?format=csv` supported where applicable.
+
+- Saved report configs & scheduling
+  - Admin → Assets → Saved report configurations; schedule automatic emails by setting `schedule_interval_seconds`.
+  - Command: `python manage.py run_report_config <id>`; `--dry-run` to preview.
+  - RQ scheduler auto-registers active configs on service start.
+
+- Snapshots & performance
+  - Daily/Monthly ETL: `snapshot_asset_status_daily`, `snapshot_compliance_daily`, `snapshot_asset_costs_monthly`.
+  - Snapshot models: `AssetStatusSnapshot`, `ComplianceSnapshot`, `AssetCostSnapshot`.
+  - DB indexes added on maintenance/compliance/utilization/telemetry to accelerate reporting.
+
+- Compliance risk & ownership
+  - `ComplianceTemplate` includes severity (low→critical), owner user/team, and required document count.
+  - Daily compliance snapshot emits a simple risk score based on status + severity + missing evidence.
+
+### After pulling updates – migrations & jobs
+
+Run the following inside the web container after pulling this branch:
+
+```bash
+PYTHONPATH=src DJANGO_SETTINGS_MODULE=ralph.settings.prod venv/bin/python -m django migrate
+
+# optional: generate initial snapshots
+venv/bin/python -m django snapshot_asset_status_daily
+venv/bin/python -m django snapshot_compliance_daily
+venv/bin/python -m django snapshot_asset_costs_monthly
+
+# optional: create and run a report config
+# (Create a ReportConfig in admin first and note its ID)
+venv/bin/python -m django run_report_config <id> --dry-run
+```
+
+Keep an RQ worker and scheduler running for automation (see Background workers & schedulers above).

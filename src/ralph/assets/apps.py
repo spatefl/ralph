@@ -8,7 +8,7 @@ class AssetsConfig(RalphAppConfig):
     default = True
 
     def get_load_modules_when_ready(self):
-        modules = ["signals"]
+        modules = ["signals", "scheduling"]
         if settings.ENABLE_HERMES_INTEGRATION:
             modules.append("subscribers")
         return modules

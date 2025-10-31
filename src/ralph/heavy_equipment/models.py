@@ -4,6 +4,7 @@ from decimal import Decimal
 from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
@@ -12,13 +13,16 @@ from django.utils.translation import gettext_lazy as _
 from ralph.accounts.models import Regionalizable
 from ralph.assets.models.assets import (
     Asset,
+    AssetIncidentSeverity,
     MaintenanceRecord,
     MaintenanceRecordStatus,
     MaintenanceRecordType,
     DisposalRecord,
     DisposalStatus,
+    SafetyChecklistTrigger,
 )
 from ralph.assets.notifications import AssetEventType, notify_asset_event
+from ralph.assets.services.safety import enforce_checklist, ensure_operator_certification, log_incident
 from ralph.lib.dj_choices import Choices
 from ralph.lib.mixins.fields import NullableCharField
 from ralph.lib.transitions.decorators import transition_action
@@ -39,12 +43,33 @@ class HeavyEquipmentType(models.TextChoices):
     EXCAVATOR = "excavator", _("Excavator")
     BULLDOZER = "bulldozer", _("Bulldozer")
     LOADER = "loader", _("Loader / Skid steer")
-    PUMP = "pump", _("Pump")
-    TANK = "tank", _("Tank / Water system")
     CRANE = "crane", _("Crane")
     FORKLIFT = "forklift", _("Forklift or telehandler")
     LIGHT_TOWER = "light_tower", _("Light tower")
+    PUMP = "pump", _("Pump")
+    TANK = "tank", _("Tank / Water system")
     OTHER = "other", _("Other")
+
+
+HEAVY_EQUIPMENT_MACHINERY_TYPES = {
+    HeavyEquipmentType.EXCAVATOR,
+    HeavyEquipmentType.BULLDOZER,
+    HeavyEquipmentType.LOADER,
+    HeavyEquipmentType.CRANE,
+    HeavyEquipmentType.FORKLIFT,
+    HeavyEquipmentType.OTHER,
+}
+
+HEAVY_EQUIPMENT_TRAILER_TYPES = {
+    HeavyEquipmentType.TRAILER,
+    HeavyEquipmentType.TANK,
+}
+
+HEAVY_EQUIPMENT_POWER_TYPES = {
+    HeavyEquipmentType.GENERATOR,
+    HeavyEquipmentType.LIGHT_TOWER,
+    HeavyEquipmentType.PUMP,
+}
 
 
 class HeavyEquipmentAssetStatus(Choices):
@@ -61,10 +86,8 @@ class HeavyEquipmentAssetStatus(Choices):
 class HeavyEquipmentFunctionalGroup(Choices):
     _ = Choices.Choice
 
-    debris_removal = _("Debris removal equipment")
-    power_generation = _("Power generation & lighting")
-    water_management = _("Water & fluid management")
-    material_handling = _("Material handling & logistics")
+    debris_removal = _("Earthmoving equipment")
+    material_handling = _("Material handling & lifting")
     other = _("Miscellaneous heavy equipment")
 
 
@@ -88,15 +111,6 @@ HEAVY_EQUIPMENT_GROUP_MAP = {
         HeavyEquipmentType.BULLDOZER,
         HeavyEquipmentType.LOADER,
     },
-    HeavyEquipmentFunctionalGroup.power_generation.id: {
-        HeavyEquipmentType.GENERATOR,
-        HeavyEquipmentType.LIGHT_TOWER,
-    },
-    HeavyEquipmentFunctionalGroup.water_management.id: {
-        HeavyEquipmentType.PUMP,
-        HeavyEquipmentType.TANK,
-        HeavyEquipmentType.TRAILER,
-    },
     HeavyEquipmentFunctionalGroup.material_handling.id: {
         HeavyEquipmentType.CRANE,
         HeavyEquipmentType.FORKLIFT,
@@ -118,6 +132,10 @@ class HeavyEquipmentAsset(Regionalizable, Asset):
     MAINTENANCE_APPROVAL_THRESHOLD = Decimal("5000.00")
     APPROVE_MAINTENANCE_PERMISSION = "heavy_equipment.approve_heavyequipment_maintenance"
     APPROVE_RETIREMENT_PERMISSION = "heavy_equipment.approve_heavyequipment_retirement"
+
+    MACHINERY_TYPES = HEAVY_EQUIPMENT_MACHINERY_TYPES
+    TRAILER_TYPES = HEAVY_EQUIPMENT_TRAILER_TYPES
+    POWER_TYPES = HEAVY_EQUIPMENT_POWER_TYPES
 
     equipment_identifier = NullableCharField(
         max_length=64,
@@ -368,6 +386,17 @@ class HeavyEquipmentAsset(Regionalizable, Asset):
         verbose_name=_("last status change"),
     )
 
+    def clean(self):
+        super().clean()
+        if self.__class__ is HeavyEquipmentAsset and self.equipment_type not in self.MACHINERY_TYPES:
+            raise ValidationError(
+                {
+                    "equipment_type": _(
+                        "Use the Trailers or Power & Lighting category for this asset type."
+                    )
+                }
+            )
+
     @staticmethod
     def _requires_permission(requester, permission_code):
         return requester is not None and not requester.has_perm(permission_code)
@@ -509,6 +538,18 @@ class HeavyEquipmentAsset(Regionalizable, Asset):
         return DisposalStatus.from_id(record.status).desc
 
 
+class HeavyEquipmentTypeManager(models.Manager):
+    def __init__(self, equipment_type, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.equipment_type = equipment_type
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.equipment_type:
+            return queryset.filter(equipment_type=self.equipment_type)
+        return queryset.none()
+
+
 class HeavyEquipmentGroupProxyMixin:
     functional_group_filter = None
     objects = HeavyEquipmentGroupManager()
@@ -531,28 +572,6 @@ class HeavyEquipmentDebrisRemoval(HeavyEquipmentGroupProxyMixin, HeavyEquipmentA
         proxy = True
         verbose_name = _("Debris removal equipment")
         verbose_name_plural = _("Debris removal equipment")
-
-
-class HeavyEquipmentPowerGeneration(
-    HeavyEquipmentGroupProxyMixin, HeavyEquipmentAsset
-):
-    functional_group_filter = HeavyEquipmentFunctionalGroup.power_generation.id
-
-    class Meta:
-        proxy = True
-        verbose_name = _("Power generation & lighting")
-        verbose_name_plural = _("Power generation & lighting")
-
-
-class HeavyEquipmentWaterManagement(
-    HeavyEquipmentGroupProxyMixin, HeavyEquipmentAsset
-):
-    functional_group_filter = HeavyEquipmentFunctionalGroup.water_management.id
-
-    class Meta:
-        proxy = True
-        verbose_name = _("Water & fluid management equipment")
-        verbose_name_plural = _("Water & fluid management equipment")
 
 
 class HeavyEquipmentMaterialHandling(
@@ -588,6 +607,13 @@ class HeavyEquipmentMaterialHandling(
                     required=False,
                 )
             },
+            "checklist_entry": {
+                "field": forms.IntegerField(
+                    label=_("Safety checklist entry"),
+                    required=False,
+                    help_text=_("Provide the ID of a valid activation checklist entry."),
+                )
+            },
         },
     )
     def activate_heavy_equipment_asset(cls, instances, **kwargs):
@@ -601,12 +627,21 @@ class HeavyEquipmentMaterialHandling(
         if owner_id:
             owner = get_user_model().objects.get(pk=int(owner_id))
         location = kwargs.get("assigned_location")
+        checklist_entry_id = kwargs.get("checklist_entry")
         for instance in instances:
+            checklist_entry = enforce_checklist(
+                instance,
+                SafetyChecklistTrigger.activation.id,
+                checklist_entry_id,
+            )
             history = _history_entry(kwargs, instance)
+            if checklist_entry:
+                history[_("Checklist entry")] = checklist_entry.pk
             if owner is not None:
                 instance.owner = owner
                 history[_("Owner")] = str(owner)
             if user is not None:
+                ensure_operator_certification(user, instance)
                 instance.user = user
                 history[_("Operator")] = str(user)
             if location is not None:
@@ -936,6 +971,14 @@ class HeavyEquipmentMaterialHandling(
                 history[_("Damage note")] = note
             instance.status = HeavyEquipmentAssetStatus.damaged.id
             instance.last_status_change = timezone.now().date()
+            incident = log_incident(
+                instance,
+                _("Damage reported"),
+                description=note or "",
+                severity=AssetIncidentSeverity.high.id,
+                reported_by=requester,
+            )
+            history[_("Incident")] = incident.pk
             record = MaintenanceRecord.start_record(
                 base_object=instance,
                 record_type=MaintenanceRecordType.repair.id,
@@ -1167,3 +1210,57 @@ class HeavyEquipmentMaterialHandling(
                     "transition": "log_heavy_equipment_refuel",
                 },
             )
+
+
+class ExcavatorAsset(HeavyEquipmentAsset):
+    objects = HeavyEquipmentTypeManager(HeavyEquipmentType.EXCAVATOR)
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Excavator")
+        verbose_name_plural = _("Excavators")
+
+
+class BulldozerAsset(HeavyEquipmentAsset):
+    objects = HeavyEquipmentTypeManager(HeavyEquipmentType.BULLDOZER)
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Bulldozer")
+        verbose_name_plural = _("Bulldozers")
+
+
+class LoaderAsset(HeavyEquipmentAsset):
+    objects = HeavyEquipmentTypeManager(HeavyEquipmentType.LOADER)
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Loader / skid steer")
+        verbose_name_plural = _("Loaders / skid steers")
+
+
+class CraneAsset(HeavyEquipmentAsset):
+    objects = HeavyEquipmentTypeManager(HeavyEquipmentType.CRANE)
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Crane")
+        verbose_name_plural = _("Cranes")
+
+
+class ForkliftAsset(HeavyEquipmentAsset):
+    objects = HeavyEquipmentTypeManager(HeavyEquipmentType.FORKLIFT)
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Forklift / telehandler")
+        verbose_name_plural = _("Forklifts / telehandlers")
+
+
+class OtherHeavyEquipmentAsset(HeavyEquipmentAsset):
+    objects = HeavyEquipmentTypeManager(HeavyEquipmentType.OTHER)
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Other heavy equipment")
+        verbose_name_plural = _("Other heavy equipment")

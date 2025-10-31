@@ -168,4 +168,48 @@ class Migration(migrations.Migration):
             name='template',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='generated_records', to='assets.compliancetemplate'),
         ),
+        migrations.AddField(
+            model_name='asset',
+            name='annual_capex_budget',
+            field=models.DecimalField(blank=True, decimal_places=2, help_text='Annual CAPEX budget allocated to the asset.', max_digits=14, null=True),
+        ),
+        migrations.AddField(
+            model_name='asset',
+            name='annual_opex_budget',
+            field=models.DecimalField(blank=True, decimal_places=2, help_text='Annual OPEX budget allocated to the asset.', max_digits=14, null=True),
+        ),
+        migrations.AddField(
+            model_name='asset',
+            name='budget_period_start',
+            field=models.DateField(blank=True, help_text='Start date of the current budget period.', null=True),
+        ),
+        migrations.AddField(
+            model_name='asset',
+            name='last_usage_captured_at',
+            field=models.DateTimeField(blank=True, help_text='Timestamp of the last usage meter reading.', null=True),
+        ),
+        migrations.AddField(
+            model_name='asset',
+            name='last_usage_value',
+            field=models.DecimalField(blank=True, decimal_places=3, help_text='Last recorded usage meter value for telemetry delta calculations.', max_digits=18, null=True),
+        ),
+        migrations.CreateModel(
+            name='AssetUtilizationSnapshot',
+            fields=[
+                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('created', models.DateTimeField(auto_now_add=True, verbose_name='date created')),
+                ('modified', models.DateTimeField(auto_now=True, verbose_name='last modified')),
+                ('date', models.DateField()),
+                ('active_seconds', models.PositiveIntegerField(default=0)),
+                ('idle_seconds', models.PositiveIntegerField(default=0)),
+                ('distance_km', models.DecimalField(decimal_places=3, default=0, max_digits=12)),
+                ('base_object', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='utilization_snapshots', to='assets.baseobject')),
+            ],
+            options={
+                'verbose_name': 'Asset utilization snapshot',
+                'verbose_name_plural': 'Asset utilization snapshots',
+                'unique_together': {('base_object', 'date')},
+            },
+            bases=(ralph.lib.mixins.models.AdminAbsoluteUrlMixin, models.Model),
+        ),
     ]

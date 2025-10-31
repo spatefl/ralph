@@ -1,0 +1,42 @@
+Asset Digest – {{ as_of }}
+=================================
+
+Operations Summary
+------------------
+Assets tracked: {{ operations.inventory.total }}
+Open maintenance tasks: {{ open_maintenance }}
+Overdue maintenance tasks: {{ overdue_maintenance }}
+Average utilization: {{ operations.utilization.average_utilization_rate|default:0|floatformat:2 }}
+Average MTTR (hours): {{ analytics.mttr_hours|default:0|floatformat:2 }}
+Average MTBF (hours): {{ analytics.mtbf_hours|default:0|floatformat:2 }}
+
+Low resource alerts:
+{% for alert in resource_alerts %}
+ - {{ alert.name }} ({{ alert.resource }} {{ alert.level_percent|floatformat:1 }}% ≤ {{ alert.threshold_percent|floatformat:1 }}%)
+{% empty %}
+ - None
+{% endfor %}
+
+Compliance Summary
+------------------
+Compliant records: {{ compliance_metrics.compliance.compliant }}
+Due soon: {{ compliance_metrics.compliance.due_soon }}
+Overdue compliance records: {{ compliance_overdue }}
+
+Lifecycle status:
+{% for row in compliance_metrics.lifecycle %}
+ - {{ row.status }}: {{ row.count }}
+{% empty %}
+ - No lifecycle data
+{% endfor %}
+
+Finance Summary ({{ costs.period.start }} – {{ costs.period.end }})
+----------------------------------------------
+CAPEX: {{ costs.totals.capex }}
+OPEX: {{ costs.totals.opex }}
+Maintenance OPEX: {{ costs.totals.maintenance|default:0 }}
+Parts OPEX: {{ costs.totals.parts|default:0 }}
+Fuel spend: {{ costs.totals.fuel }}
+
+Regards,
+Ralph Automation

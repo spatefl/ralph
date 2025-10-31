@@ -1,0 +1,98 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} | {{ site_title|default:_('Ralph') }}{% endblock %}
+
+{% block content %}
+<h1>{{ page_title }}</h1>
+<p class="help">{% trans "Assets analysed" %}: {{ asset_count }}</p>
+
+<section class="module">
+  <h2>{% trans "Fuel inventory" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "Total capacity (L)" %}</strong>: {{ report_data.fuel.total_capacity_liters }}</li>
+    <li><strong>{% trans "Available (L)" %}</strong>: {{ report_data.fuel.available_liters }}</li>
+    <li><strong>{% trans "Average level (%)" %}</strong>: {{ report_data.fuel.average_level_percent|floatformat:1 }}</li>
+  </ul>
+  <table class="listtable">
+    <thead>
+      <tr>
+        <th>{% trans "Asset" %}</th>
+        <th>{% trans "Capacity (L)" %}</th>
+        <th>{% trans "Level (%)" %}</th>
+        <th>{% trans "Available (L)" %}</th>
+        <th>{% trans "Threshold (%)" %}</th>
+        <th>{% trans "Location" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report_data.fuel.assets|slice:":20" %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ row.capacity_liters }}</td>
+          <td>{{ row.level_percent|floatformat:1 }}</td>
+          <td>{{ row.available_liters|floatformat:1 }}</td>
+          <td>{{ row.threshold_percent|floatformat:1 }}</td>
+          <td>{{ row.deployment_site|default:row.assigned_location }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">{% trans "No fuel assets tracked" %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="module">
+  <h2>{% trans "Water inventory" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "Total capacity (L)" %}</strong>: {{ report_data.water.total_capacity_liters }}</li>
+    <li><strong>{% trans "Available (L)" %}</strong>: {{ report_data.water.available_liters }}</li>
+    <li><strong>{% trans "Average level (%)" %}</strong>: {{ report_data.water.average_level_percent|floatformat:1 }}</li>
+  </ul>
+  <table class="listtable">
+    <thead>
+      <tr>
+        <th>{% trans "Asset" %}</th>
+        <th>{% trans "Capacity (L)" %}</th>
+        <th>{% trans "Level (%)" %}</th>
+        <th>{% trans "Available (L)" %}</th>
+        <th>{% trans "Threshold (%)" %}</th>
+        <th>{% trans "Location" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report_data.water.assets|slice:":20" %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ row.capacity_liters }}</td>
+          <td>{{ row.level_percent|floatformat:1 }}</td>
+          <td>{{ row.available_liters|floatformat:1 }}</td>
+          <td>{{ row.threshold_percent|floatformat:1 }}</td>
+          <td>{{ row.deployment_site|default:row.assigned_location }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">{% trans "No water assets tracked" %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="module">
+  <h2>{% trans "Active alerts" %}</h2>
+  <table class="listtable">
+    <thead><tr><th>{% trans "Resource" %}</th><th>{% trans "Asset" %}</th><th>{% trans "Level (%)" %}</th><th>{% trans "Threshold (%)" %}</th></tr></thead>
+    <tbody>
+      {% for row in report_data.anomalies|slice:":20" %}
+        <tr>
+          <td>{{ row.resource|title }}</td>
+          <td>{{ row.name }}</td>
+          <td>{{ row.level_percent|floatformat:1 }}</td>
+          <td>{{ row.threshold_percent|floatformat:1 }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">{% trans "No thresholds breached" %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

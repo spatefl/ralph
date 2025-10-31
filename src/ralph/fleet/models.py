@@ -16,13 +16,16 @@ from django.utils.translation import gettext_lazy as _
 from ralph.accounts.models import Regionalizable
 from ralph.assets.models.assets import (
     Asset,
+    AssetIncidentSeverity,
     MaintenanceRecord,
     MaintenanceRecordStatus,
     MaintenanceRecordType,
     DisposalRecord,
     DisposalStatus,
+    SafetyChecklistTrigger,
 )
 from ralph.assets.notifications import AssetEventType, notify_asset_event
+from ralph.assets.services.safety import enforce_checklist, ensure_operator_certification, log_incident
 from ralph.lib.dj_choices import Choices
 from ralph.lib.lifecycle import LifecycleStatusMixin
 from ralph.lib.mixins.fields import NullableCharField
@@ -578,6 +581,13 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                     min_value=0,
                 )
             },
+            "checklist_entry": {
+                "field": forms.IntegerField(
+                    label=_("Safety checklist entry"),
+                    required=False,
+                    help_text=_("Provide the ID of a valid activation checklist entry."),
+                )
+            },
         },
     )
     def activate_fleet_asset(cls, instances, **kwargs):
@@ -588,9 +598,18 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
             user = get_user_model().objects.get(pk=int(user_id))
         location = kwargs.get("assigned_location")
         initial_odometer = kwargs.get("initial_odometer")
+        checklist_entry_id = kwargs.get("checklist_entry")
         for instance in instances:
+            checklist_entry = enforce_checklist(
+                instance,
+                SafetyChecklistTrigger.activation.id,
+                checklist_entry_id,
+            )
             history = _history_entry(kwargs, instance)
+            if checklist_entry:
+                history[_("Checklist entry")] = checklist_entry.pk
             if user is not None:
+                ensure_operator_certification(user, instance)
                 instance.user = user
                 history[_("Driver")] = str(user)
             if location is not None:
@@ -906,6 +925,14 @@ class FleetPassengerVehicle(FleetAssetGroupProxyMixin, FleetAsset):
                 history[_("Estimated cost")] = float(estimated_cost)
             instance.status = FleetAssetStatus.damaged.id
             instance.last_status_change = timezone.now().date()
+            incident = log_incident(
+                instance,
+                _("Damage reported"),
+                description=note or "",
+                severity=AssetIncidentSeverity.high.id,
+                reported_by=requester,
+            )
+            history[_("Incident")] = incident.pk
             record_extra = {}
             if estimated_cost is not None:
                 record_extra["estimated_cost"] = float(estimated_cost)

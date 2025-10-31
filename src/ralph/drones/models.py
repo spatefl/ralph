@@ -21,8 +21,10 @@ from ralph.assets.models.assets import (
     MaintenanceRecordType,
     DisposalRecord,
     DisposalStatus,
+    SafetyChecklistTrigger,
 )
 from ralph.assets.notifications import AssetEventType, notify_asset_event
+from ralph.assets.services.safety import enforce_checklist, ensure_operator_certification
 from ralph.lib.dj_choices import Choices
 from ralph.lib.lifecycle import LifecycleStatusMixin
 from ralph.lib.mixins.fields import NullableCharField
@@ -512,6 +514,13 @@ class DroneAsset(Regionalizable, Asset):
                     widget=forms.Textarea(attrs={"rows": 2}),
                 )
             },
+            "checklist_entry": {
+                "field": forms.IntegerField(
+                    label=_("Safety checklist entry"),
+                    required=False,
+                    help_text=_("Provide the ID of a valid activation checklist entry."),
+                )
+            },
         },
     )
     def activate_drone_asset(cls, instances, **kwargs):
@@ -526,9 +535,18 @@ class DroneAsset(Regionalizable, Asset):
             team = Team.objects.get(pk=int(team_id))
         location = kwargs.get("assigned_location")
         mission = kwargs.get("mission")
+        checklist_entry_id = kwargs.get("checklist_entry")
         for instance in instances:
+            checklist_entry = enforce_checklist(
+                instance,
+                SafetyChecklistTrigger.activation.id,
+                checklist_entry_id,
+            )
             history = _history_entry(kwargs, instance)
+            if checklist_entry:
+                history[_("Checklist entry")] = checklist_entry.pk
             if user is not None:
+                ensure_operator_certification(user, instance)
                 instance.user = user
                 history[_("Operator")] = str(user)
             if team is not None:

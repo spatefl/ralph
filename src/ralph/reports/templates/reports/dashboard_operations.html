@@ -1,0 +1,110 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} | {{ site_title|default:_('Ralph') }}{% endblock %}
+
+{% block content %}
+<h1>{{ page_title }}</h1>
+<p class="help">{% trans "Assets analysed" %}: {{ asset_count }}</p>
+
+<section class="module">
+  <h2>{% trans "Inventory snapshot" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "Total" %}:</strong> {{ report_data.inventory.total }}</li>
+  </ul>
+  <div class="row">
+    <div class="col">
+      <h3>{% trans "By type" %}</h3>
+      <table class="listtable">
+        <thead><tr><th>{% trans "Type" %}</th><th>{% trans "Count" %}</th></tr></thead>
+        <tbody>
+          {% for row in report_data.inventory.by_type %}
+            <tr><td>{{ row.value }}</td><td>{{ row.count }}</td></tr>
+          {% empty %}
+            <tr><td colspan="2">{% trans "No data" %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="col">
+      <h3>{% trans "By status" %}</h3>
+      <table class="listtable">
+        <thead><tr><th>{% trans "Status" %}</th><th>{% trans "Count" %}</th></tr></thead>
+        <tbody>
+          {% for row in report_data.inventory.by_status %}
+            <tr><td>{{ row.value }}</td><td>{{ row.count }}</td></tr>
+          {% empty %}
+            <tr><td colspan="2">{% trans "No data" %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="module">
+  <h2>{% trans "Utilization" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "Active hours" %}</strong>: {{ report_data.utilization.total_active_hours }}</li>
+    <li><strong>{% trans "Idle hours" %}</strong>: {{ report_data.utilization.total_idle_hours }}</li>
+    <li><strong>{% trans "Downtime hours" %}</strong>: {{ report_data.utilization.total_downtime_hours }}</li>
+    <li><strong>{% trans "Average utilization" %}</strong>: {{ report_data.utilization.average_utilization_rate|floatformat:2 }}</li>
+  </ul>
+</section>
+
+<section class="module">
+  <h2>{% trans "Maintenance" %}</h2>
+  <ul class="inline">
+    <li><strong>{% trans "Open" %}</strong>: {{ report_data.maintenance.open }}</li>
+    <li><strong>{% trans "Overdue" %}</strong>: {{ report_data.maintenance.overdue }}</li>
+    <li><strong>{% trans "Due within 7 days" %}</strong>: {{ report_data.maintenance.due_within_7d }}</li>
+  </ul>
+</section>
+
+<section class="module">
+  <h2>{% trans "Resource readiness" %}</h2>
+  <div class="row">
+    <div class="col">
+      <h3>{% trans "Fuel" %}</h3>
+      <ul class="inline">
+        <li><strong>{% trans "Capacity (L)" %}</strong>: {{ report_data.resources.fuel.total_capacity_liters }}</li>
+        <li><strong>{% trans "Available (L)" %}</strong>: {{ report_data.resources.fuel.available_liters }}</li>
+        <li><strong>{% trans "Average level (%)" %}</strong>: {{ report_data.resources.fuel.average_level_percent|floatformat:1 }}</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>{% trans "Water" %}</h3>
+      <ul class="inline">
+        <li><strong>{% trans "Capacity (L)" %}</strong>: {{ report_data.resources.water.total_capacity_liters }}</li>
+        <li><strong>{% trans "Available (L)" %}</strong>: {{ report_data.resources.water.available_liters }}</li>
+        <li><strong>{% trans "Average level (%)" %}</strong>: {{ report_data.resources.water.average_level_percent|floatformat:1 }}</li>
+      </ul>
+    </div>
+  </div>
+  <h3>{% trans "Low resource alerts" %}</h3>
+  <table class="listtable">
+    <thead>
+      <tr>
+        <th>{% trans "Resource" %}</th>
+        <th>{% trans "Asset" %}</th>
+        <th>{% trans "Level (%)" %}</th>
+        <th>{% trans "Threshold (%)" %}</th>
+        <th>{% trans "Location" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report_data.resources.anomalies|slice:":10" %}
+        <tr>
+          <td>{{ row.resource|title }}</td>
+          <td>{{ row.name }}</td>
+          <td>{{ row.level_percent|floatformat:1 }}</td>
+          <td>{{ row.threshold_percent|floatformat:1 }}</td>
+          <td>{{ row.deployment_site|default:row.assigned_location }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">{% trans "No anomalies detected" %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

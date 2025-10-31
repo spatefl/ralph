@@ -28,12 +28,24 @@ from ralph.assets.models import (
     ConfigurationClass,
     ConfigurationModule,
     DeploymentEntry,
+    DeploymentAssignment,
     Environment,
     Manufacturer,
     ManufacturerKind,
     MaintenanceRecord,
+    MaintenancePartUsage,
     MaintenanceRecordStatus,
     MaintenanceRecordType,
+    SafetyChecklistItem,
+    SafetyChecklistTemplate,
+    SafetyChecklistEntry,
+    SafetyChecklistResponse,
+    OperatorCertification,
+    AssetIncident,
+    AssetIncidentTask,
+    SparePart,
+    SparePartCategory,
+    SparePartStock,
     DisposalStatus,
     ProfitCenter,
     Service,
@@ -98,6 +110,175 @@ class EnvironmentSerializer(RalphAPISerializer):
     class Meta:
         model = Environment
         fields = "__all__"
+
+
+class SparePartStockSerializer(RalphAPISerializer):
+    class Meta:
+        model = SparePartStock
+        fields = (
+            "id",
+            "location",
+            "quantity_on_hand",
+            "quantity_reserved",
+            "reorder_point",
+            "reorder_quantity",
+            "last_restocked_at",
+            "is_active",
+        )
+
+
+class SparePartSerializer(RalphAPISerializer):
+    stocks = SparePartStockSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SparePart
+        fields = (
+            "id",
+            "name",
+            "sku",
+            "vendor_name",
+            "vendor_sku",
+            "unit_cost",
+            "restock_threshold",
+            "restock_quantity",
+            "external_reference",
+            "is_active",
+            "stocks",
+        )
+
+
+class SparePartCategorySerializer(RalphAPISerializer):
+    parts = SparePartSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SparePartCategory
+        fields = ("id", "name", "description", "parts")
+
+
+class MaintenancePartUsageSerializer(RalphAPISerializer):
+    part = SparePartSerializer(read_only=True)
+    stock = SparePartStockSerializer(read_only=True)
+    effective_unit_cost = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+    extended_cost = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = MaintenancePartUsage
+        fields = (
+            "id",
+            "part",
+            "stock",
+            "quantity_used",
+            "unit_cost",
+            "effective_unit_cost",
+            "extended_cost",
+            "notes",
+        )
+
+
+class SafetyChecklistItemSerializer(RalphAPISerializer):
+    class Meta:
+        model = SafetyChecklistItem
+        fields = ("id", "prompt", "item_type", "is_required", "require_attachment")
+
+
+class SafetyChecklistTemplateSerializer(RalphAPISerializer):
+    items = SafetyChecklistItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SafetyChecklistTemplate
+        fields = (
+            "id",
+            "name",
+            "trigger",
+            "content_type",
+            "is_active",
+            "require_all_pass",
+            "validity_period_hours",
+            "notes",
+            "items",
+        )
+
+
+class SafetyChecklistResponseSerializer(RalphAPISerializer):
+    item = SafetyChecklistItemSerializer(read_only=True)
+
+    class Meta:
+        model = SafetyChecklistResponse
+        fields = (
+            "id",
+            "item",
+            "value_boolean",
+            "value_text",
+            "value_decimal",
+        )
+
+
+class SafetyChecklistEntrySerializer(RalphAPISerializer):
+    template = SafetyChecklistTemplateSerializer(read_only=True)
+    completed_by = SimpleRalphUserSerializer(read_only=True)
+    responses = SafetyChecklistResponseSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SafetyChecklistEntry
+        fields = (
+            "id",
+            "template",
+            "status",
+            "completed_by",
+            "completed_at",
+            "notes",
+            "responses",
+        )
+
+
+class OperatorCertificationSerializer(RalphAPISerializer):
+    user = SimpleRalphUserSerializer(read_only=True)
+
+    class Meta:
+        model = OperatorCertification
+        fields = (
+            "id",
+            "user",
+            "name",
+            "content_type",
+            "issued_on",
+            "expires_on",
+            "is_active",
+            "notes",
+        )
+
+
+class AssetIncidentTaskSerializer(RalphAPISerializer):
+    completed_by = SimpleRalphUserSerializer(read_only=True)
+
+    class Meta:
+        model = AssetIncidentTask
+        fields = ("id", "description", "due_at", "completed_at", "completed_by")
+
+
+class AssetIncidentSerializer(RalphAPISerializer):
+    reported_by = SimpleRalphUserSerializer(read_only=True)
+    assigned_to = SimpleRalphUserSerializer(read_only=True)
+    tasks = AssetIncidentTaskSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AssetIncident
+        fields = (
+            "id",
+            "title",
+            "description",
+            "severity",
+            "status",
+            "opened_at",
+            "closed_at",
+            "reported_by",
+            "assigned_to",
+            "tasks",
+        )
 
 
 class SaveServiceSerializer(ReversionHistoryAPISerializerMixin, RalphAPISerializer):
@@ -464,6 +645,12 @@ class MaintenanceRecordSerializer(RalphAPISerializer):
     reported_by = SimpleRalphUserSerializer(read_only=True)
     closed_by = SimpleRalphUserSerializer(read_only=True)
     is_sla_overdue = serializers.BooleanField(read_only=True)
+    parts = MaintenancePartUsageSerializer(
+        source="part_usages", many=True, read_only=True
+    )
+    parts_cost_total = serializers.DecimalField(
+        source="parts_cost_total", max_digits=12, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = MaintenanceRecord
@@ -491,6 +678,8 @@ class MaintenanceRecordSerializer(RalphAPISerializer):
             "closure_acknowledged_at",
             "extra_data",
             "is_sla_overdue",
+            "parts",
+            "parts_cost_total",
         )
 
 
@@ -523,10 +712,29 @@ class ComplianceRecordSerializer(RalphAPISerializer):
         )
 
 
+class DeploymentAssignmentSerializer(RalphAPISerializer):
+    user = SimpleRalphUserSerializer(read_only=True)
+
+    class Meta:
+        model = DeploymentAssignment
+        fields = (
+            "id",
+            "user",
+            "role",
+            "started_at",
+            "ended_at",
+            "handover_notes",
+            "last_reported_at",
+            "last_reported_metric",
+        )
+
+
 class DeploymentEntrySerializer(RalphAPISerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     assigned_to_user = SimpleRalphUserSerializer(read_only=True)
     assigned_to_team = SimpleTeamSerializer(read_only=True)
+    assignments = DeploymentAssignmentSerializer(many=True, read_only=True)
+    roster_summary = serializers.CharField(read_only=True)
 
     class Meta:
         model = DeploymentEntry
@@ -534,22 +742,37 @@ class DeploymentEntrySerializer(RalphAPISerializer):
             "id",
             "status",
             "status_display",
+            "shift_label",
+            "shift_start",
+            "shift_end",
+            "roster_summary",
             "assigned_to_user",
             "assigned_to_team",
             "location",
             "latitude",
             "longitude",
+            "current_speed_kmh",
             "started_at",
             "ended_at",
             "notes",
+            "handover_notes",
+            "last_telemetry_at",
+            "assignments",
         )
 
 
 class TelemetryReadingSerializer(RalphAPISerializer):
+    deployment_entry = serializers.PrimaryKeyRelatedField(read_only=True)
+    deployment_shift = serializers.CharField(
+        source="deployment_entry.shift_label", read_only=True
+    )
+
     class Meta:
         model = TelemetryReading
         fields = (
             "id",
+            "deployment_entry",
+            "deployment_shift",
             "source",
             "metric",
             "unit",
@@ -565,6 +788,8 @@ class AssetLifecycleSerializerMixin(RalphAPISerializer):
     compliance_records = serializers.SerializerMethodField()
     deployment_entries = serializers.SerializerMethodField()
     telemetry_readings = serializers.SerializerMethodField()
+    safety_checklists = serializers.SerializerMethodField()
+    incidents = serializers.SerializerMethodField()
     maintenance_summary = serializers.SerializerMethodField()
     compliance_summary = serializers.SerializerMethodField()
     disposal_summary = serializers.SerializerMethodField()
@@ -573,6 +798,8 @@ class AssetLifecycleSerializerMixin(RalphAPISerializer):
     compliance_records_limit = 10
     deployment_entries_limit = 10
     telemetry_readings_limit = 25
+    safety_checklists_limit = 5
+    incidents_limit = 10
 
     def _get_related(self, obj, attr):
         cache = getattr(obj, "_prefetched_objects_cache", {})
@@ -636,6 +863,26 @@ class AssetLifecycleSerializerMixin(RalphAPISerializer):
         if self.telemetry_readings_limit is not None:
             readings = readings[: self.telemetry_readings_limit]
         return TelemetryReadingSerializer(readings, many=True, context=self.context).data
+
+    def get_safety_checklists(self, obj):
+        entries = self._get_related(obj, "safety_checklists")
+        if hasattr(entries, "order_by"):
+            entries = entries.order_by("-completed_at", "-created")
+        else:
+            entries = sorted(entries, key=lambda entry: entry.completed_at or entry.created, reverse=True)
+        if self.safety_checklists_limit is not None:
+            entries = entries[: self.safety_checklists_limit]
+        return SafetyChecklistEntrySerializer(entries, many=True, context=self.context).data
+
+    def get_incidents(self, obj):
+        incidents = self._get_related(obj, "incidents")
+        if hasattr(incidents, "order_by"):
+            incidents = incidents.order_by("-opened_at")
+        else:
+            incidents = sorted(incidents, key=lambda incident: incident.opened_at, reverse=True)
+        if self.incidents_limit is not None:
+            incidents = incidents[: self.incidents_limit]
+        return AssetIncidentSerializer(incidents, many=True, context=self.context).data
 
     def get_maintenance_summary(self, obj):
         open_statuses = {

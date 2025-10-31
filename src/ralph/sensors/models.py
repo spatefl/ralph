@@ -21,8 +21,10 @@ from ralph.assets.models.assets import (
     MaintenanceRecordType,
     DisposalRecord,
     DisposalStatus,
+    SafetyChecklistTrigger,
 )
 from ralph.assets.models.base import BaseObject
+from ralph.assets.services.safety import enforce_checklist, ensure_operator_certification
 from ralph.lib.dj_choices import Choices
 from ralph.lib.lifecycle import LifecycleStatusMixin
 from ralph.lib.mixins.fields import NullableCharField
@@ -386,6 +388,13 @@ class SensorAsset(Regionalizable, Asset):
                     min_value=0,
                 )
             },
+            "checklist_entry": {
+                "field": forms.IntegerField(
+                    label=_("Safety checklist entry"),
+                    required=False,
+                    help_text=_("Provide the ID of a valid activation checklist entry."),
+                )
+            },
         },
     )
     def activate_sensor_asset(cls, instances, **kwargs):
@@ -399,9 +408,18 @@ class SensorAsset(Regionalizable, Asset):
         install_date = kwargs.get("installation_date")
         requester = kwargs.get("requester")
         performed_by = kwargs.get("performed_by")
+        checklist_entry_id = kwargs.get("checklist_entry")
         for instance in instances:
+            checklist_entry = enforce_checklist(
+                instance,
+                SafetyChecklistTrigger.activation.id,
+                checklist_entry_id,
+            )
             history = _history_entry(kwargs, instance)
+            if checklist_entry:
+                history[_("Checklist entry")] = checklist_entry.pk
             if user is not None:
+                ensure_operator_certification(user, instance)
                 instance.user = user
                 history[_("User")] = str(user)
             if location is not None:
