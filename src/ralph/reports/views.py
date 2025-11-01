@@ -336,7 +336,7 @@ class AssetRelationsReport(BaseRelationsReport):
     name = _("Asset - relations")
     description = _("Asset list of information about the user, owner, model.")
     filename = "asset_relations.csv"
-    extra_headers = ["tags"]
+    extra_headers = ["family", "tags"]
     dc_headers = [
         "id",
         "niw",
@@ -429,7 +429,7 @@ class AssetRelationsReport(BaseRelationsReport):
 
     def prepare(self, model, *args, **kwargs):
         queryset = model.objects.prefetch_related("tags")
-        headers = self.generic_headers
+        headers = list(self.generic_headers)
         select_related = self.generic_select_related
         model_name = model._meta.object_name
         if model_name == "DataCenterAsset":
@@ -438,6 +438,25 @@ class AssetRelationsReport(BaseRelationsReport):
         elif model_name == "BackOfficeAsset":
             headers = self.bo_headers
             select_related = self.bo_select_related
+        elif model_name == "TrailerAsset":
+            # Trailer-specific useful fields
+            headers += [
+                "trailer_subtype",
+                "occupancy_status",
+                "occupancy_level_percent",
+                "fixtures",
+            ]
+        elif model_name == "PowerAsset":
+            headers += [
+                "power_asset_type",
+                "max_output_kw",
+                "last_runtime_hours",
+            ]
+        elif model_name == "HeavyEquipmentAsset":
+            headers += [
+                "hours_used",
+                "odometer_km",
+            ]
 
         yield headers + self.extra_headers
         for asset in queryset.select_related(*select_related):
@@ -449,7 +468,24 @@ class AssetRelationsReport(BaseRelationsReport):
         """
         Call extra methods for object.
         """
-        return [self._get_tags(obj)]
+        return [self._get_family(obj), self._get_tags(obj)]
+
+    def _get_family(self, obj):
+        try:
+            app = obj._meta.app_label
+        except Exception:  # pragma: no cover - very defensive
+            return ""
+        mapping = {
+            "data_center": "Data Center",
+            "back_office": "Back Office",
+            "heavy_equipment": "Heavy Equipment",
+            "trailers": "Trailers",
+            "power": "Power & Lighting",
+            "fleet": "Fleet",
+            "drones": "Drones",
+            "sensors": "Sensors",
+        }
+        return mapping.get(app, app.replace("_", " ").title())
 
     def _get_tags(self, obj):
         """

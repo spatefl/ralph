@@ -286,6 +286,25 @@ Integration patterns with SC3
 Security
 
 - Use DRF token auth or network isolation between Sirius and SC3. For webhooks, set shared secrets in Integration Endpoints and verify signatures in SC3 workflows.
+- Telemetry ingest hardening: the `/api/telemetry/ingest/` endpoint supports a shared secret header (`X-Ingest-Token`) via `TELEMETRY_INGEST_TOKEN` and a simple per‑IP+asset rate limit (default 120/min) controlled by `TELEMETRY_RATE_PER_MINUTE`.
+
+### Telemetry metrics conventions
+
+When posting telemetry, prefer these metric names and units:
+
+- runtime/usage:
+  - `engine_hours` or `runtime_hours` (hours, numeric)
+  - `odometer_km` (km, integer)
+  - `active_hours`, `idle_hours` (hours, numeric)
+- levels & energy:
+  - `fuel_level_percent`, `water_level_percent`, `battery_level_percent` (%, 0–100)
+  - `power_output_kw` (kW, numeric)
+- environment:
+  - `temperature_c`, `humidity_percent`
+- trailers:
+  - `occupancy_level_percent` (%, 0–100)
+
+Include an ISO `captured_at` timestamp where possible and use `unit` if not implicit. Additional metrics are accepted but may not map to dashboards until configured.
 
 ---
 

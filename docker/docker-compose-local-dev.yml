@@ -41,6 +41,50 @@ services:
     image: redis:7.0.11
     restart: unless-stopped
 
+  assets-rqworker:
+    platform: linux/amd64
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile-service
+    depends_on:
+      - assets-db
+      - assets-redis
+    environment:
+      DATABASE_NAME: ralph_ng
+      DATABASE_USER: ralph_ng
+      DATABASE_PASSWORD: ralph_ng
+      DATABASE_HOST: assets-db
+      DATABASE_PORT: 3306
+      DATABASE_ENGINE: django.db.backends.mysql
+      REDIS_HOST: assets-redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      DISABLE_RQ_SCHEDULER: "1"
+    command: ["/opt/sirius-ralph/venv/bin/ralph", "rqworker", "default"]
+    restart: unless-stopped
+
+  assets-rqscheduler:
+    platform: linux/amd64
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile-service
+    depends_on:
+      - assets-db
+      - assets-redis
+    environment:
+      DATABASE_NAME: ralph_ng
+      DATABASE_USER: ralph_ng
+      DATABASE_PASSWORD: ralph_ng
+      DATABASE_HOST: assets-db
+      DATABASE_PORT: 3306
+      DATABASE_ENGINE: django.db.backends.mysql
+      REDIS_HOST: assets-redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      DISABLE_RQ_SCHEDULER: "1"
+    command: ["/opt/sirius-ralph/venv/bin/ralph", "rqscheduler", "--queue", "default"]
+    restart: unless-stopped
+
   assets-inkpy:
     build:
       context: ../
