@@ -48,6 +48,7 @@ from ralph.assets.models.assets import (
     Manufacturer,
     ManufacturerKind,
     ProfitCenter,
+    Project,
     Service,
     ServiceEnvironment,
 )
@@ -775,6 +776,7 @@ class DeploymentAssignmentAdmin(RalphAdmin):
 class DeploymentEntryAdmin(RalphAdmin):
     list_display = (
         "base_object",
+        "project",
         "status_display",
         "shift_label",
         "assigned_to_user",
@@ -785,15 +787,17 @@ class DeploymentEntryAdmin(RalphAdmin):
         "ended_at",
         "last_telemetry_at",
     )
-    list_filter = ("status", "assigned_to_team", "shift_label")
+    list_filter = ("status", "assigned_to_team", "shift_label", "project")
     search_fields = (
         "base_object__hostname",
         "base_object__barcode",
+        "project__code",
+        "project__name",
         "location",
         "shift_label",
         "notes",
     )
-    raw_id_fields = ("base_object", "assigned_to_user", "assigned_to_team")
+    raw_id_fields = ("base_object", "project", "assigned_to_user", "assigned_to_team")
     readonly_fields = ("created", "modified", "roster_summary")
     inlines = [DeploymentAssignmentInline]
 
@@ -808,6 +812,7 @@ class DeploymentEntryInline(RalphTabularInline):
     fk_name = "base_object"
     extra = 0
     fields = (
+        "project",
         "status_display",
         "shift_label",
         "roster_summary",
@@ -1150,6 +1155,35 @@ class BusinessSegmentAdmin(RalphAdmin):
 @register(ProfitCenter)
 class ProfitCenterAdmin(RalphAdmin):
     search_fields = ["name"]
+
+
+@register(Project)
+class ProjectAdmin(RalphAdmin):
+    list_display = (
+        "name",
+        "code",
+        "status_display",
+        "manager",
+        "default_team",
+        "location_name",
+        "active_assets",
+        "created",
+    )
+    list_filter = ("status", "default_team")
+    search_fields = ("name", "code", "external_id", "location_name")
+    raw_id_fields = ("manager", "default_team")
+    readonly_fields = ("created", "modified")
+    ordering = ("name", "code")
+
+    def status_display(self, instance):
+        return instance.get_status_display()
+
+    status_display.short_description = _("Status")
+
+    def active_assets(self, instance):
+        return instance.active_assets_count
+
+    active_assets.short_description = _("Active assets")
 
 
 @register(AssetModel)

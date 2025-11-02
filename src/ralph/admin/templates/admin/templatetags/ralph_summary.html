@@ -7,7 +7,7 @@
           <div class="wrapper">
               <div class="name">{{ result.label | title }}</div>
               <div class="value">{{ result.count }}</div>
-              <i class="fa icon" aria-hidden="true"></i>
+              <i class="fa {{ result.icon }} icon" aria-hidden="true"></i>
               {% if result.meta %}
                 <div class="meta">
                   {% for item in result.meta %}

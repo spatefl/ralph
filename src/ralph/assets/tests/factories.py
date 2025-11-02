@@ -13,6 +13,8 @@ from ralph.assets.models.assets import (
     Manufacturer,
     ManufacturerKind,
     ProfitCenter,
+    Project,
+    ProjectStatus,
     Service,
     ServiceEnvironment,
 )
@@ -27,6 +29,7 @@ from ralph.assets.models.components import (
     Processor,
 )
 from ralph.assets.models.configuration import ConfigurationClass, ConfigurationModule
+from ralph.accounts.tests.factories import TeamFactory, UserFactory
 
 
 def next_mac(n):
@@ -316,3 +319,15 @@ class DiskFactory(DjangoModelFactory):
 
     class Meta:
         model = Disk
+
+
+class ProjectFactory(DjangoModelFactory):
+    name = factory.Faker("company")
+    code = factory.Sequence(lambda n: f"PRJ-{n:04d}")
+    status = ProjectStatus.active.id
+    manager = factory.SubFactory(UserFactory)
+    default_team = factory.SubFactory(TeamFactory)
+    location_name = factory.Faker("city")
+
+    class Meta:
+        model = Project

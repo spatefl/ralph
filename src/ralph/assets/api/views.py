@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 import django_filters
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch, Q
 from django_filters import Filter
+from rest_framework import status as http_status
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import SAFE_METHODS
+from rest_framework.response import Response
 
 import ralph.assets.api.serializers_dchosts
 from ralph.api import RalphAPIViewSet
@@ -20,6 +23,7 @@ from ralph.licences.api import BaseObjectLicenceViewSet
 from ralph.licences.models import BaseObjectLicence
 from ralph.networks.models import IPAddress
 from ralph.virtual.models import CloudHost, VirtualServer
+from ralph.assets.services.projects import assign_asset_to_project
 
 
 class BusinessSegmentViewSet(RalphAPIViewSet):
@@ -80,6 +84,67 @@ class ServiceEnvironmentViewSet(RalphAPIViewSet):
         "service__{}".format(pr) for pr in ServiceViewSet.prefetch_related
     ]
     additional_filter_class = ServiceEnvFilterSet
+
+
+class ProjectViewSet(RalphAPIViewSet):
+    queryset = models.Project.objects.select_related("manager", "default_team")
+    serializer_class = serializers.ProjectSerializer
+    save_serializer_class = serializers.ProjectSaveSerializer
+    prefetch_related = []
+    filterset_fields = ["status", "manager", "code", "external_id"]
+    search_fields = ("name", "code", "external_id", "location_name")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.annotate(
+            active_assets_total=Count(
+                "deployment_entries__base_object",
+                filter=Q(deployment_entries__ended_at__isnull=True),
+                distinct=True,
+            )
+        ).select_related("manager", "default_team")
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if getattr(self, "action", None) == "retrieve":
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "deployment_entries",
+                    queryset=models.DeploymentEntry.objects.select_related(
+                        "base_object", "assigned_to_user", "assigned_to_team", "project"
+                    ),
+                )
+            )
+        return queryset
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return serializers.ProjectDetailSerializer
+        return super().get_serializer_class()
+
+    @action(detail=True, methods=["post"], url_path="assign-assets")
+    def assign_assets(self, request, pk=None):
+        project = self.get_object()
+        payload = serializers.ProjectBulkAssignmentSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        context = self.get_serializer_context()
+        entries = []
+        for assignment in payload.validated_data["assignments"]:
+            entry = assign_asset_to_project(
+                project=project,
+                asset=assignment["asset"],
+                assignee=assignment.get("assignee"),
+                status=assignment.get("status"),
+                shift_label=assignment.get("shift_label"),
+                location=assignment.get("location"),
+                notes=assignment.get("notes"),
+                handover_notes=assignment.get("handover_notes"),
+            )
+            entries.append(entry)
+        serializer = serializers.DeploymentEntrySerializer(
+            entries, many=True, context=context
+        )
+        return Response(serializer.data, status=http_status.HTTP_200_OK)
 
 
 class ManufacturerViewSet(RalphAPIViewSet):

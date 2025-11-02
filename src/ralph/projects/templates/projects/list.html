@@ -1,0 +1,73 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div class="module">
+  <h1>{% trans "Projects overview" %}</h1>
+  <form method="get" class="form-inline" style="margin-bottom: 1.5rem;">
+    <label for="project-search" class="sr-only">{% trans "Search projects" %}</label>
+    <input
+      id="project-search"
+      type="text"
+      name="q"
+      value="{{ query }}"
+      placeholder="{% trans 'Search projects' %}"
+      style="min-width: 220px; margin-right: 0.5rem;"
+    />
+    <label for="project-status" class="sr-only">{% trans "Filter by status" %}</label>
+    <select id="project-status" name="status" style="margin-right: 0.5rem;">
+      <option value="">{% trans "All statuses" %}</option>
+      {% for status in project_statuses %}
+        {% with status_id=status.id|stringformat:"s" %}
+          <option value="{{ status.id }}" {% if selected_status == status_id %}selected{% endif %}>{{ status.desc }}</option>
+        {% endwith %}
+      {% endfor %}
+    </select>
+    <button type="submit" class="button">{% trans "Filter" %}</button>
+    {% if query or selected_status %}
+      <a href="{% url 'projects:list' %}" style="margin-left: 0.5rem;">{% trans "Clear" %}</a>
+    {% endif %}
+  </form>
+
+  <table class="listing">
+    <thead>
+      <tr>
+        <th>{% trans "Project" %}</th>
+        <th>{% trans "Code" %}</th>
+        <th>{% trans "Status" %}</th>
+        <th>{% trans "Active assets" %}</th>
+        <th>{% trans "Manager" %}</th>
+        <th>{% trans "Default team" %}</th>
+        <th>{% trans "Location" %}</th>
+        <th>{% trans "Updated" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for project in projects %}
+        <tr>
+          <td><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a></td>
+          <td>{{ project.code }}</td>
+          <td>{{ project.get_status_display }}</td>
+          <td>{{ project.active_assets_count }}</td>
+          <td>
+            {% if project.manager %}
+              {{ project.manager.get_full_name|default:project.manager.username }}
+            {% else %}
+              <span class="muted">{% trans "Unassigned" %}</span>
+            {% endif %}
+          </td>
+          <td>{{ project.default_team|default_if_none:"—" }}</td>
+          <td>{{ project.location_name|default_if_none:"—" }}</td>
+          <td>{{ project.modified|date:"Y-m-d H:i" }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="8" class="muted">{% trans "No projects found for the selected filters." %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

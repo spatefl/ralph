@@ -1,0 +1,76 @@
+{% load i18n %}
+<div class="module projects-widget">
+  <h2>{% trans "Projects" %}</h2>
+  <div class="meta" style="margin-bottom: 1rem;">
+    <span class="meta-item info">{% trans "Total" %}: <strong>{{ total_projects }}</strong></span>
+    {% for stat in stats %}
+      <span class="meta-item {% if stat.class %}{{ stat.class }}{% endif %}">
+        {{ stat.label }}: <strong>{{ stat.value }}</strong>
+      </span>
+    {% endfor %}
+  </div>
+  {% if total_projects %}
+  {% if project_rows %}
+    <table class="listing">
+      <thead>
+        <tr>
+          <th>{% trans "Project" %}</th>
+          <th>{% trans "Status" %}</th>
+          <th>{% trans "Active assets" %}</th>
+          <th>{% trans "Manager" %}</th>
+          <th>{% trans "End date" %}</th>
+          <th>{% trans "Financials" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for project in project_rows %}
+          <tr>
+            <td>
+              <a href="{{ project.url }}">{{ project.name }}</a>
+              {% if project.code %}
+                <br><small>{{ project.code }}</small>
+              {% endif %}
+              {% if project.location %}
+                <br><small class="muted">{{ project.location }}</small>
+              {% endif %}
+            </td>
+            <td>
+              <span class="status-tag {{ project.status_class }}">{{ project.status }}</span>
+            </td>
+            <td>{{ project.active_assets }}</td>
+            <td>
+              {% if project.manager %}
+                {{ project.manager }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if project.end_date %}
+                {{ project.end_date|date:"Y-m-d" }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td class="financials">
+              <div>{% trans "Capex" %}: {{ project.capex_used }} / {{ project.capex_budget }}</div>
+              <div class="{{ project.capex_remaining_class }}">{% trans "Remaining" %}: {{ project.capex_remaining }}</div>
+              <div>{% trans "Opex used" %}: {{ project.opex_used }}</div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">{% trans "No active project assignments found." %}</p>
+  {% endif %}
+  <div class="actions">
+    <a class="button secondary small" href="{{ projects_url }}">{% trans "View all projects" %}</a>
+  </div>
+  {% else %}
+    <p class="muted">{% trans "No projects have been created yet." %}</p>
+    <div class="actions">
+      <a class="button secondary small" href="{{ projects_url }}">{% trans "Create or import projects" %}</a>
+    </div>
+  {% endif %}
+</div>

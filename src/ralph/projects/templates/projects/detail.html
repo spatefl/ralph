@@ -1,0 +1,134 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div class="module">
+  <h1>{{ project.name }}{% if project.code %} <small>{{ project.code }}</small>{% endif %}</h1>
+  <div class="summary" style="margin-bottom: 1.5rem;">
+    <dl style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+      <div>
+        <dt>{% trans "Status" %}</dt>
+        <dd>{{ project.get_status_display }}</dd>
+      </div>
+      <div>
+        <dt>{% trans "Manager" %}</dt>
+        <dd>
+          {% if project.manager %}
+            {{ project.manager.get_full_name|default:project.manager.username }}
+          {% else %}
+            <span class="muted">{% trans "Unassigned" %}</span>
+          {% endif %}
+        </dd>
+      </div>
+      <div>
+        <dt>{% trans "Default team" %}</dt>
+        <dd>{{ project.default_team|default_if_none:"—" }}</dd>
+      </div>
+      <div>
+        <dt>{% trans "Location" %}</dt>
+        <dd>{{ project.location_name|default_if_none:"—" }}</dd>
+      </div>
+      <div>
+        <dt>{% trans "Active assets" %}</dt>
+        <dd>{{ project.active_assets_count }}</dd>
+      </div>
+      <div>
+        <dt>{% trans "Last updated" %}</dt>
+        <dd>{{ project.modified|date:"Y-m-d H:i" }}</dd>
+      </div>
+    </dl>
+    {% if project.description %}
+      <p style="margin-top: 1rem;">{{ project.description }}</p>
+    {% endif %}
+  </div>
+
+  <h2>{% trans "Project assets" %}</h2>
+  {% if not deployments %}
+    <p class="muted">{% trans "No assets are currently assigned to this project." %}</p>
+  {% else %}
+    <table class="listing">
+      <thead>
+        <tr>
+          <th>{% trans "Asset" %}</th>
+          <th>{% trans "Status" %}</th>
+          <th>{% trans "Current assignment" %}</th>
+          <th>{% trans "Shift" %}</th>
+          <th>{% trans "Location" %}</th>
+          <th>{% trans "Last telemetry" %}</th>
+          <th>{% trans "Update assignment" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for deployment, form in deployment_rows %}
+          <tr>
+            <td>
+              <a href="{{ deployment.base_object.get_absolute_url }}">{{ deployment.base_object }}</a>
+              <br />
+              <small>{{ deployment.base_object._meta.verbose_name|capfirst }}</small>
+            </td>
+            <td>{{ deployment.get_status_display }}</td>
+            <td>
+              {{ deployment.roster_summary }}
+            </td>
+            <td>
+              {% if deployment.shift_label %}
+                {{ deployment.shift_label }}<br />
+              {% endif %}
+              <small>
+                {{ deployment.started_at|date:"Y-m-d H:i" }}
+                {% if deployment.ended_at %}→ {{ deployment.ended_at|date:"Y-m-d H:i" }}{% endif %}
+              </small>
+            </td>
+            <td>
+              {{ deployment.location|default_if_none:"—" }}
+            </td>
+            <td>
+              {% if deployment.last_telemetry_at %}
+                {{ deployment.last_telemetry_at|date:"Y-m-d H:i" }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if can_assign %}
+                <form method="post" class="assignment-form" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                  {% csrf_token %}
+                  {{ form.entry }}
+                  <label>
+                    <span class="sr-only">{% trans "Assign to user" %}</span>
+                    {{ form.assignee }}
+                  </label>
+                  <label>
+                    <span class="sr-only">{% trans "Handover notes" %}</span>
+                    {{ form.handover_notes }}
+                  </label>
+                  {% if form.non_field_errors %}
+                    <div class="errors">
+                      {{ form.non_field_errors }}
+                    </div>
+                  {% endif %}
+                  {% if form.assignee.errors %}
+                    <div class="errors">
+                      {{ form.assignee.errors }}
+                    </div>
+                  {% endif %}
+                  {% if form.handover_notes.errors %}
+                    <div class="errors">
+                      {{ form.handover_notes.errors }}
+                    </div>
+                  {% endif %}
+                  <button type="submit" class="button">{% trans "Save" %}</button>
+                </form>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}

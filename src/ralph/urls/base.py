@@ -62,6 +62,7 @@ api_urls += [re_path(r"^", include(router.urls))]
 
 urlpatterns = [
     re_path(r"^api/", include(api_urls)),
+    re_path(r"^projects/", include("ralph.projects.urls")),
     re_path(r"^", admin.urls),
     re_path(r"^api-token-auth/", views.obtain_auth_token),
     re_path(r"^", include("ralph.dc_view.urls.ui")),

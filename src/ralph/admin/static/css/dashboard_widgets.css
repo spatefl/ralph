@@ -1,0 +1,312 @@
+.dashboard .categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.dashboard .categories .category {
+  position: relative;
+  flex: 1 1 260px;
+  min-height: 190px;
+  border-radius: 14px;
+  padding: 1.25rem;
+  color: #f6f8ff;
+  background: #1f2435;
+  box-shadow: 0 14px 32px rgba(10, 15, 45, 0.35);
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dashboard .categories .category:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 40px rgba(10, 15, 45, 0.4);
+}
+
+.dashboard .categories .category a {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+  height: 100%;
+}
+
+.dashboard .categories .category .wrapper {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dashboard .categories .category .name {
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: rgba(236, 243, 255, 0.95);
+}
+
+.dashboard .categories .category .value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.dashboard .categories .category .icon {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  font-size: 3.2rem;
+  opacity: 0.22;
+  z-index: 0;
+}
+
+.dashboard .categories .category .meta {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.dashboard .categories .category .meta .meta-item {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+}
+
+.dashboard .categories .category .meta .meta-item.info {
+  background: rgba(84, 196, 255, 0.28);
+  color: #dff2ff;
+}
+
+.dashboard .categories .category .meta .meta-item.warning {
+  background: rgba(255, 193, 82, 0.28);
+  color: #fff1d6;
+}
+
+.dashboard .categories .category .meta .meta-item.alert {
+  background: rgba(255, 108, 108, 0.28);
+  color: #ffe0e0;
+}
+
+.dashboard .categories .category.tile-datacenter {
+  background: linear-gradient(135deg, #213a75 0%, #181f46 100%);
+}
+
+.dashboard .categories .category.tile-backoffice {
+  background: linear-gradient(135deg, #5f2aa8 0%, #3b1b6f 100%);
+}
+
+.dashboard .categories .category.tile-users {
+  background: linear-gradient(135deg, #0f766e 0%, #0b3b37 100%);
+}
+
+.dashboard .categories .category.tile-heavy {
+  background: linear-gradient(135deg, #8a3e05 0%, #572401 100%);
+}
+
+.dashboard .categories .category.tile-trailers {
+  background: linear-gradient(135deg, #a83246 0%, #661626 100%);
+}
+
+.dashboard .categories .category.tile-power {
+  background: linear-gradient(135deg, #d18b0f 0%, #442705 100%);
+}
+
+.dashboard .categories .category.tile-fleet {
+  background: linear-gradient(135deg, #0a7d2a 0%, #063515 100%);
+}
+
+.dashboard .categories .category.tile-drones {
+  background: linear-gradient(135deg, #1976d2 0%, #0f355f 100%);
+}
+
+.dashboard .categories .category.tile-sensors {
+  background: linear-gradient(135deg, #16a2b8 0%, #0c4a57 100%);
+}
+
+.dashboard .categories .category.tile-projects {
+  background: linear-gradient(135deg, #6c35c0 0%, #32186c 100%);
+}
+
+.dashboard .categories .category.tile-trailer-occupancy {
+  background: linear-gradient(135deg, #bf5b04 0%, #612303 100%);
+}
+
+.dashboard .categories .category.tile-power-utilization {
+  background: linear-gradient(135deg, #128772 0%, #084137 100%);
+}
+
+.dashboard .categories .category[class*="tile-power-"] {
+  background: linear-gradient(135deg, #0f5baa 0%, #082d54 100%);
+}
+
+.dashboard .categories .category.tile-my-equipment {
+  background: linear-gradient(135deg, #1f4287 0%, #141a36 100%);
+}
+
+.dashboard .categories .category.tile-pickup {
+  background: linear-gradient(135deg, #af5916 0%, #5c2603 100%);
+}
+
+.dashboard .categories .category.tile-simcard {
+  background: linear-gradient(135deg, #0e8c9e 0%, #053f47 100%);
+}
+
+.dashboard .categories .category.tile-access-card {
+  background: linear-gradient(135deg, #7a2d84 0%, #3f1442 100%);
+}
+
+.dashboard .categories .category.tile-loan {
+  background: linear-gradient(135deg, #1f5fbf 0%, #0d2b5d 100%);
+}
+
+.dashboard .categories .category.tile-return {
+  background: linear-gradient(135deg, #b0203a 0%, #540113 100%);
+}
+
+.dashboard .categories .category.tile-team {
+  background: linear-gradient(135deg, #3d3b8e 0%, #17163e 100%);
+}
+
+.dashboard .categories .category.tile-test {
+  background: linear-gradient(135deg, #1b7c3f 0%, #0b3a1d 100%);
+}
+
+.dashboard .module.projects-widget {
+  border-radius: 14px;
+  background: linear-gradient(135deg, #31235b 0%, #1c1542 100%);
+  color: #f6f8ff;
+  box-shadow: 0 14px 32px rgba(10, 15, 45, 0.35);
+  padding: 1.5rem;
+  margin-bottom: 1.8rem;
+}
+
+.dashboard .module.projects-widget h2 {
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 1.1rem;
+  color: #daccff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard .module.projects-widget h2::before {
+  content: "\f542";
+  font-family: "FontAwesome";
+  font-weight: normal;
+  font-style: normal;
+  display: inline-block;
+  text-decoration: inherit;
+}
+
+.dashboard .module.projects-widget .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.2rem;
+}
+
+.dashboard .module.projects-widget .meta .meta-item {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+}
+
+.dashboard .module.projects-widget .meta .meta-item.info {
+  background: rgba(80, 190, 255, 0.25);
+  color: #dff2ff;
+}
+
+.dashboard .module.projects-widget .meta .meta-item.warning {
+  background: rgba(255, 193, 82, 0.25);
+  color: #fff1d6;
+}
+
+.dashboard .module.projects-widget .meta .meta-item.alert {
+  background: rgba(255, 108, 108, 0.25);
+  color: #ffe0e0;
+}
+
+.dashboard .module.projects-widget table.listing {
+  margin-bottom: 1.2rem;
+  border: none;
+}
+
+.dashboard .module.projects-widget table.listing thead th {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e5e6ff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.dashboard .module.projects-widget table.listing tbody td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f6f8ff;
+  font-size: 0.9rem;
+}
+
+.dashboard .module.projects-widget table.listing tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.dashboard .module.projects-widget .financials {
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.dashboard .module.projects-widget .financials .alert {
+  color: #ffc7c7;
+}
+
+.dashboard .module.projects-widget .financials .info {
+  color: #dff2ff;
+}
+
+.dashboard .module.projects-widget .status-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dashboard .module.projects-widget .status-tag.info {
+  background: rgba(80, 190, 255, 0.25);
+  color: #d3ecff;
+}
+
+.dashboard .module.projects-widget .status-tag.warning {
+  background: rgba(255, 193, 82, 0.28);
+  color: #ffe3b0;
+}
+
+.dashboard .module.projects-widget .status-tag.alert {
+  background: rgba(255, 108, 108, 0.25);
+  color: #ffc7c7;
+}
+
+.dashboard .module.projects-widget .actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dashboard .module.projects-widget .actions .button {
+  background: rgba(218, 204, 255, 0.18);
+  border: 1px solid rgba(218, 204, 255, 0.35);
+  color: #efe9ff;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.dashboard .module.projects-widget .muted {
+  color: rgba(255, 255, 255, 0.54);
+}

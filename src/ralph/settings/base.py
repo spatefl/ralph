@@ -85,6 +85,7 @@ INSTALLED_APPS = (
     "ralph.accounts",
     "ralph.accessories",
     "ralph.assets",
+    "ralph.projects",
     "ralph.attachments",
     "ralph.back_office",
     "ralph.fleet",

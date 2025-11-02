@@ -2191,6 +2191,94 @@ class AssetUtilizationSnapshot(AdminAbsoluteUrlMixin, TimeStampMixin, models.Mod
         snapshot.save(update_fields=["active_seconds", "idle_seconds", "distance_km", "modified"])
 
 
+class ProjectStatus(Choices):
+    _ = Choices.Choice
+
+    planned = _("planned")
+    active = _("active")
+    paused = _("paused")
+    completed = _("completed")
+    cancelled = _("cancelled")
+
+
+class Project(AdminAbsoluteUrlMixin, NamedMixin.NonUnique, TimeStampMixin, models.Model):
+    code = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text=_("Short unique identifier used by SC3 and reporting."),
+    )
+    external_id = models.CharField(
+        max_length=128,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text=_("Optional external identifier supplied by SC3."),
+    )
+    status = models.PositiveIntegerField(
+        choices=ProjectStatus(),
+        default=ProjectStatus.planned.id,
+    )
+    manager = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="projects_managed",
+    )
+    default_team = models.ForeignKey(
+        Team,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="projects",
+    )
+    location_name = models.CharField(
+        max_length=128,
+        blank=True,
+        help_text=_("Primary project location or site label."),
+    )
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    description = models.TextField(blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ("name", "code")
+        verbose_name = _("Project")
+        verbose_name_plural = _("Projects")
+
+    def __str__(self):
+        return f"{self.name} ({self.code})" if self.code else self.name
+
+    @property
+    def active_deployments(self):
+        return self.deployment_entries.filter(ended_at__isnull=True)
+
+    @property
+    def active_assets_count(self):
+        annotated = getattr(self, "active_assets_total", None)
+        if annotated is not None:
+            return annotated
+        return (
+            self.active_deployments.values("base_object_id").distinct().count()
+        )
+
+    def default_assignee(self):
+        return self.manager
+
+
 class DeploymentStatus(Choices):
     _ = Choices.Choice
 
@@ -2272,6 +2360,14 @@ class DeploymentEntry(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         related_name="deployment_entries",
         on_delete=models.CASCADE,
     )
+    project = models.ForeignKey(
+        Project,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deployment_entries",
+        help_text=_("Project or engagement this deployment supports."),
+    )
     shift_label = models.CharField(
         max_length=64,
         blank=True,
@@ -2348,11 +2444,14 @@ class DeploymentEntry(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         verbose_name_plural = _("Deployment entries")
         indexes = [
             models.Index(fields=["base_object", "started_at"]),
+            models.Index(fields=["project", "started_at"]),
             models.Index(fields=["status"]),
         ]
 
     def __str__(self):
         parts = [self.get_status_display()]
+        if self.project:
+            parts.append(self.project.code or self.project.name)
         if self.shift_label:
             parts.append(self.shift_label)
         if self.location:

@@ -18,6 +18,7 @@ from ralph.assets.api.views import (
     MemoryViewSet,
     ProcessorViewSet,
     ProfitCenterViewSet,
+    ProjectViewSet,
     ServiceEnvironmentViewSet,
     ServiceViewSet,
 )
@@ -39,6 +40,7 @@ router.register(r"manufacturers", ManufacturerViewSet)
 router.register(r"manufacturer-kind", ManufacturerKindViewSet)
 router.register(r"processors", ProcessorViewSet)
 router.register(r"profit-centers", ProfitCenterViewSet)
+router.register(r"projects", ProjectViewSet)
 router.register(r"services-environments", ServiceEnvironmentViewSet)
 router.register(r"services", ServiceViewSet)
 router.register(r"dc-hosts", DCHostViewSet, basename="dchost")

@@ -48,6 +48,8 @@ from ralph.assets.models import (
     SparePartStock,
     DisposalStatus,
     ProfitCenter,
+    Project,
+    DeploymentStatus,
     Service,
     ServiceEnvironment,
     TelemetryReading,
@@ -104,6 +106,99 @@ class SimpleTeamSerializer(RalphAPISerializer):
     class Meta:
         model = Team
         fields = ("id", "name", "url")
+
+
+class ProjectSerializer(RalphAPISerializer):
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    manager = SimpleRalphUserSerializer(read_only=True)
+    default_team = SimpleTeamSerializer(read_only=True)
+    active_assets_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Project
+        fields = (
+            "id",
+            "url",
+            "name",
+            "code",
+            "external_id",
+            "status",
+            "status_display",
+            "manager",
+            "default_team",
+            "location_name",
+            "latitude",
+            "longitude",
+            "start_date",
+            "end_date",
+            "description",
+            "notes",
+            "active_assets_count",
+            "created",
+            "modified",
+        )
+
+
+class ProjectSaveSerializer(RalphAPISaveSerializer):
+    manager = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.all(), allow_null=True, required=False
+    )
+    default_team = serializers.PrimaryKeyRelatedField(
+        queryset=Team.objects.all(), allow_null=True, required=False
+    )
+
+    class Meta:
+        model = Project
+        fields = (
+            "name",
+            "code",
+            "external_id",
+            "status",
+            "manager",
+            "default_team",
+            "location_name",
+            "latitude",
+            "longitude",
+            "start_date",
+            "end_date",
+            "description",
+            "notes",
+        )
+
+
+class ProjectDetailSerializer(ProjectSerializer):
+    deployments = serializers.SerializerMethodField()
+
+    class Meta(ProjectSerializer.Meta):
+        fields = ProjectSerializer.Meta.fields + ("deployments",)
+
+    def get_deployments(self, obj):
+        entries = obj.deployment_entries.select_related(
+            "base_object", "assigned_to_user", "assigned_to_team"
+        ).order_by("-started_at", "-pk")
+        return DeploymentEntrySerializer(
+            entries, many=True, context=self.context
+        ).data
+
+
+class ProjectAssignmentItemSerializer(serializers.Serializer):
+    asset = serializers.PrimaryKeyRelatedField(
+        queryset=BaseObject.polymorphic_objects.all()
+    )
+    assignee = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.all(), allow_null=True, required=False
+    )
+    status = serializers.ChoiceField(
+        choices=DeploymentStatus(), required=False, allow_null=True
+    )
+    shift_label = serializers.CharField(required=False, allow_blank=True)
+    location = serializers.CharField(required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+    handover_notes = serializers.CharField(required=False, allow_blank=True)
+
+
+class ProjectBulkAssignmentSerializer(serializers.Serializer):
+    assignments = ProjectAssignmentItemSerializer(many=True)
 
 
 class EnvironmentSerializer(RalphAPISerializer):
@@ -735,6 +830,11 @@ class DeploymentEntrySerializer(RalphAPISerializer):
     assigned_to_team = SimpleTeamSerializer(read_only=True)
     assignments = DeploymentAssignmentSerializer(many=True, read_only=True)
     roster_summary = serializers.CharField(read_only=True)
+    project = serializers.PrimaryKeyRelatedField(read_only=True)
+    project_name = serializers.CharField(source="project.name", read_only=True)
+    project_code = serializers.CharField(source="project.code", read_only=True)
+    asset = BaseObjectSimpleSerializer(source="base_object", read_only=True)
+    asset_id = serializers.IntegerField(source="base_object_id", read_only=True)
 
     class Meta:
         model = DeploymentEntry
@@ -742,6 +842,11 @@ class DeploymentEntrySerializer(RalphAPISerializer):
             "id",
             "status",
             "status_display",
+            "project",
+            "project_name",
+            "project_code",
+            "asset",
+            "asset_id",
             "shift_label",
             "shift_start",
             "shift_end",

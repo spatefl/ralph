@@ -11,6 +11,7 @@
             <div class="summary module row">
                 {% ralph_summary %}
             </div>
+            {% projects_widget %}
             {% my_services request.user %}
             {% dc_capacity data_centers %}
         </div>
@@ -47,4 +48,3 @@
         </div>
     </div>
 {% endblock %}
-

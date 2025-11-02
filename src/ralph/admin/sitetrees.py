@@ -91,6 +91,12 @@ sitetrees = [
         "ralph_admin",
         items=[
             ralph_item(
+                title=_("Projects"),
+                url="projects:list",
+                url_as_pattern=True,
+                access_by_perms="assets.view_project",
+            ),
+            ralph_item(
                 title=_("Heavy Equipment"),
                 url="#",
                 url_as_pattern=False,

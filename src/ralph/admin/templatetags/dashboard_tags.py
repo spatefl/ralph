@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from collections import Counter
 from collections.abc import Iterable
+from datetime import timedelta
+from decimal import Decimal
 from itertools import cycle
 
 from django.apps import apps
@@ -30,12 +32,15 @@ from ralph.accounts.helpers import (
     get_test_assets_to_accept,
 )
 from ralph.assets.models import (
+    Asset,
     BaseObject,
     Service,
     ServiceEnvironment,
     MaintenanceRecord,
     ComplianceRecord,
     DeploymentEntry,
+    Project,
+    ProjectStatus,
 )
 from ralph.heavy_equipment.models import HeavyEquipmentAsset, HeavyEquipmentType
 from ralph.trailers.models import TrailerAsset
@@ -51,6 +56,80 @@ from ralph.data_center.models import DataCenter, DataCenterAsset, Rack, RackAcce
 register = Library()
 COLORS = ["green", "blue", "purple", "orange", "red", "pink"]
 
+TILE_STYLE_MAP = {
+    "overview_datacenterasset": {"class": "tile-datacenter", "icon": "fa-server"},
+    "overview_backofficeasset": {"class": "tile-backoffice", "icon": "fa-briefcase"},
+    "overview_ralphuser": {"class": "tile-users", "icon": "fa-users"},
+    "category_heavy-equipment": {"class": "tile-heavy", "icon": "fa-industry"},
+    "category_trailers": {"class": "tile-trailers", "icon": "fa-truck"},
+    "category_power-lighting": {"class": "tile-power", "icon": "fa-bolt"},
+    "category_fleet-assets": {"class": "tile-fleet", "icon": "fa-bus"},
+    "category_drones": {"class": "tile-drones", "icon": "fa-plane"},
+    "category_sensors": {"class": "tile-sensors", "icon": "fa-wifi"},
+    "projects_summary": {"class": "tile-projects", "icon": "fa-tasks"},
+    "supplemental_trailer": {"class": "tile-trailer-occupancy", "icon": "fa-area-chart"},
+    "supplemental_power": {"class": "tile-power-utilization", "icon": "fa-line-chart"},
+}
+
+
+def format_currency(value):
+    if value is None:
+        value = Decimal("0")
+    if not isinstance(value, Decimal):
+        value = Decimal(str(value))
+    quantized = value.quantize(Decimal("0.01"))
+    return "${:,.2f}".format(quantized)
+
+
+def summarize_project_budgets(project_ids):
+    project_ids = list(project_ids)
+    totals = {
+        "capex_budget": Decimal("0"),
+        "capex_actual": Decimal("0"),
+        "opex_budget": Decimal("0"),
+        "opex_actual": Decimal("0"),
+        "capex_variance": Decimal("0"),
+        "opex_variance": Decimal("0"),
+        "asset_count": 0,
+    }
+    if not project_ids:
+        return totals
+
+    asset_qs = (
+        Asset.objects.filter(
+            deployment_entries__project_id__in=project_ids,
+            deployment_entries__ended_at__isnull=True,
+        )
+        .distinct()
+        .select_related()
+    )
+    asset_ids = list(asset_qs.values_list("pk", flat=True))
+    totals["asset_count"] = len(asset_ids)
+
+    for asset in asset_qs.iterator():
+        if asset.annual_capex_budget:
+            totals["capex_budget"] += asset.annual_capex_budget
+        if asset.annual_opex_budget:
+            totals["opex_budget"] += asset.annual_opex_budget
+        if asset.price:
+            price_amount = getattr(asset.price, "amount", asset.price)
+            totals["capex_actual"] += Decimal(price_amount)
+
+    if asset_ids:
+        opex_actual = (
+            MaintenanceRecord.objects.filter(
+                base_object_id__in=asset_ids, cost__isnull=False
+            ).aggregate(total=Sum("cost"))["total"]
+            or Decimal("0")
+        )
+    else:
+        opex_actual = Decimal("0")
+
+    totals["opex_actual"] = opex_actual
+    totals["capex_variance"] = totals["capex_budget"] - totals["capex_actual"]
+    totals["opex_variance"] = totals["opex_budget"] - totals["opex_actual"]
+    return totals
+
 
 def get_cached_metrics(cache_key, builder, timeout=300):
     data = cache.get(cache_key)
@@ -62,10 +141,11 @@ def get_cached_metrics(cache_key, builder, timeout=300):
 
 def get_user_equipment_tile_data(user):
     return {
-        "class": "my-equipment",
+        "class": "tile-my-equipment",
         "label": _("My equipment"),
         "count": BackOfficeAsset.objects.filter(Q(user=user) | Q(owner=user)).count(),
         "url": reverse("current_user_info"),
+        "icon": "fa-laptop",
     }
 
 
@@ -74,10 +154,11 @@ def get_user_equipment_to_accept_tile_data(user):
     if not assets_to_accept_count:
         return None
     return {
-        "class": "equipment-to-accept",
+        "class": "tile-pickup",
         "label": _("Hardware pick up"),
         "count": assets_to_accept_count,
         "url": get_acceptance_url(user),
+        "icon": "fa-hand-paper-o",
     }
 
 
@@ -86,10 +167,11 @@ def get_user_simcard_to_accept_tile_data(user):
     if not simcard_to_accept_count:
         return None
     return {
-        "class": "equipment-to-accept",
+        "class": "tile-simcard",
         "label": _("SIM Card pick up"),
         "count": simcard_to_accept_count,
         "url": get_simcard_acceptance_url(user),
+        "icon": "fa-credit-card",
     }
 
 
@@ -98,10 +180,11 @@ def get_user_access_card_to_accept_tile_data(user):
     if not access_card_to_accept_count:
         return None
     return {
-        "class": "equipment-to-accept",
+        "class": "tile-access-card",
         "label": _("Access Card pick up"),
         "count": access_card_to_accept_count,
         "url": get_access_card_acceptance_url(user),
+        "icon": "fa-address-card-o",
     }
 
 
@@ -110,10 +193,11 @@ def get_user_equipment_to_accept_loan_tile_data(user):
     if not assets_to_accept_count:
         return None
     return {
-        "class": "equipment-to-accept-loan",
+        "class": "tile-loan",
         "label": _("Hardware loan"),
         "count": assets_to_accept_count,
         "url": get_loan_acceptance_url(user),
+        "icon": "fa-exchange",
     }
 
 
@@ -122,10 +206,11 @@ def get_user_equipment_to_accept_return_tile_data(user):
     if not assets_to_accept_count:
         return None
     return {
-        "class": "equipment-to-accept-return",
+        "class": "tile-return",
         "label": _("Hardware return"),
         "count": assets_to_accept_count,
         "url": get_return_acceptance_url(user),
+        "icon": "fa-undo",
     }
 
 
@@ -134,10 +219,11 @@ def get_user_team_equipment_to_accept_tile_data(user):
     if not assets_to_accept_count:
         return None
     return {
-        "class": "equipment-to-accept",
+        "class": "tile-team",
         "label": _("Team hardware pick up"),
         "count": assets_to_accept_count,
         "url": get_team_asset_acceptance_url(user),
+        "icon": "fa-users",
     }
 
 
@@ -146,10 +232,11 @@ def get_user_test_equipment_to_accept_tile_data(user):
     if not assets_to_accept_count:
         return None
     return {
-        "class": "equipment-to-accept",
+        "class": "tile-test",
         "label": _("Test hardware pick up"),
         "count": assets_to_accept_count,
         "url": get_test_asset_acceptance_url(user),
+        "icon": "fa-flask",
     }
 
 
@@ -230,47 +317,26 @@ def ralph_summary(context):
     results = []
     overview_tiles = []
     supplemental_tiles = []
-    trailer_metrics = get_cached_metrics(
-        "dashboard:trailer_metrics", trailer_status_metrics, timeout=180
-    )
-    power_metrics = get_cached_metrics(
-        "dashboard:power_metrics", power_utilization_metrics, timeout=180
-    )
-    for model_name in models:
-        app, model = model_name.split(".")
-        model = apps.get_model(app, model)
-        meta = model._meta
-        if not user.has_perm("{}.view_{}".format(app, meta.model_name)):
-            continue
-        overview_tiles.append(
-            {
-                "label": meta.verbose_name_plural,
-                "count": model.objects.count(),
-                "class": slugify(meta.model_name),
-                "icon": "icon",
-                "url": reverse(
-                    "admin:{}_{}_changelist".format(meta.app_label, meta.model_name)
-                ),
-            }
-        )
+    today = timezone.now().date()
 
-    def build_tile(label, count, url, css_class=None, meta=None):
-        if css_class is None:
-            css_class = slugify(label)
+    def build_tile(label, count, url, css_class=None, meta=None, icon=None, style_key=None):
+        style = TILE_STYLE_MAP.get(style_key or css_class or "", {})
+        style_class = style.get("class")
+        if css_class and style_class and style_class not in css_class:
+            css_class = f"{style_class} {css_class}"
+        else:
+            css_class = css_class or style_class or slugify(label)
+        icon = style.get("icon", icon or "fa-bar-chart")
         return {
             "label": label,
             "count": count,
             "class": css_class,
-            "icon": "icon",
+            "icon": icon,
             "url": url,
             "meta": meta or [],
         }
 
-    category_tiles = []
-    trailer_changelist_url = None
-    power_changelist_url = None
-
-    def build_lifecycle_meta(queryset):
+    def build_lifecycle_meta(queryset, total_assets=None):
         base_ids = list(queryset.values_list("id", flat=True))
         if not base_ids:
             return []
@@ -296,8 +362,9 @@ def ralph_summary(context):
             .count()
         )
         active_deployments = (
-            DeploymentEntry.objects.filter(base_object_id__in=base_ids, ended_at__isnull=True)
-            .count()
+            DeploymentEntry.objects.filter(
+                base_object_id__in=base_ids, ended_at__isnull=True
+            ).count()
         )
 
         meta = [
@@ -309,7 +376,9 @@ def ralph_summary(context):
             {
                 "label": _("Maint. open"),
                 "value": maintenance_open,
-                "class": "warning" if maintenance_open and not maintenance_overdue else "",
+                "class": "warning"
+                if maintenance_open and not maintenance_overdue
+                else "",
             },
             {
                 "label": _("Compliance 30d"),
@@ -327,6 +396,15 @@ def ralph_summary(context):
                 "class": "info" if active_deployments else "",
             },
         ]
+
+        if total_assets is not None:
+            available = max(total_assets - active_deployments, 0)
+            meta.append(
+                {
+                    "label": _("Available"),
+                    "value": available,
+                }
+            )
 
         analytics = aggregate_metrics(queryset[:100])
         if analytics.get("asset_count"):
@@ -347,11 +425,67 @@ def ralph_summary(context):
                 }
             )
 
-        # show only metrics with non-zero value or the first three if all zero
         significant_meta = [item for item in meta if item["value"]]
         if not significant_meta:
             significant_meta = meta[:3]
         return significant_meta[:3]
+    trailer_metrics = get_cached_metrics(
+        "dashboard:trailer_metrics", trailer_status_metrics, timeout=180
+    )
+    power_metrics = get_cached_metrics(
+        "dashboard:power_metrics", power_utilization_metrics, timeout=180
+    )
+    for model_name in models:
+        app, model = model_name.split(".")
+        model = apps.get_model(app, model)
+        meta = model._meta
+        perm_name = "{}.view_{}".format(app, meta.model_name)
+        if not user.has_perm(perm_name):
+            continue
+        total_count = model.objects.count()
+        changelist_url = reverse(
+            "admin:{}_{}_changelist".format(meta.app_label, meta.model_name)
+        )
+        queryset = model.objects.all()
+        overview_meta = []
+        if model_name == "data_center.DataCenterAsset":
+            overview_meta = build_lifecycle_meta(queryset, total_assets=total_count)
+        elif model_name == "back_office.BackOfficeAsset":
+            overview_meta = build_lifecycle_meta(queryset, total_assets=total_count)
+        elif model_name == "accounts.RalphUser":
+            active_users = model.objects.filter(is_active=True).count()
+            staff_users = model.objects.filter(is_staff=True).count()
+            inactive_users = max(total_count - active_users, 0)
+            overview_meta = [
+                {
+                    "label": _("Active"),
+                    "value": active_users,
+                    "class": "info" if active_users else "",
+                },
+                {
+                    "label": _("Inactive"),
+                    "value": inactive_users,
+                    "class": "warning" if inactive_users else "",
+                },
+                {
+                    "label": _("Staff"),
+                    "value": staff_users,
+                    "class": "info" if staff_users else "",
+                },
+            ]
+        overview_tiles.append(
+            build_tile(
+                label=meta.verbose_name_plural,
+                count=total_count,
+                url=changelist_url,
+                meta=(overview_meta or [])[:3],
+                style_key=f"overview_{meta.model_name}",
+            )
+        )
+
+    category_tiles = []
+    trailer_changelist_url = None
+    power_changelist_url = None
 
     asset_tiles = [
         ("heavy_equipment", "HeavyEquipmentAsset", _("Heavy Equipment"), "heavy-equipment"),
@@ -393,7 +527,8 @@ def ralph_summary(context):
                 }
             )
             power_changelist_url = changelist_url
-        meta = build_lifecycle_meta(queryset)
+        total_assets = queryset.count()
+        meta = build_lifecycle_meta(queryset, total_assets=total_assets)
         if model is TrailerAsset and trailer_metrics.get("total"):
             meta.extend(
                 [
@@ -428,12 +563,70 @@ def ralph_summary(context):
         category_tiles.append(
             build_tile(
                 label=label,
-                count=queryset.count(),
+                count=total_assets,
                 url=changelist_url,
-                css_class=css_class,
                 meta=meta,
+                style_key=f"category_{css_class}",
             )
         )
+
+    if user.has_perm("assets.view_project"):
+        project_qs = Project.objects.all()
+        project_total = project_qs.count()
+        if project_total:
+            active_projects = project_qs.filter(
+                status=ProjectStatus.active.id
+            ).count()
+            planned_projects = project_qs.filter(
+                status=ProjectStatus.planned.id
+            ).count()
+            managerless_projects = project_qs.filter(manager__isnull=True).count()
+            ending_soon = project_qs.filter(
+                end_date__isnull=False,
+                end_date__gte=today,
+                end_date__lte=today + timedelta(days=30),
+                status__in=[ProjectStatus.active.id, ProjectStatus.paused.id],
+            ).count()
+            deployed_assets = (
+                DeploymentEntry.objects.filter(
+                    project__isnull=False, ended_at__isnull=True
+                )
+                .values("base_object_id")
+                .distinct()
+                .count()
+            )
+            budget_totals = summarize_project_budgets(project_qs.values_list("pk", flat=True))
+            capex_remaining = budget_totals["capex_variance"]
+            supplemental_tiles.append(
+                build_tile(
+                    label=_("Projects"),
+                    count=project_total,
+                    url=reverse("projects:list"),
+                    meta=[
+                        {
+                            "label": _("Capex used"),
+                            "value": format_currency(budget_totals["capex_actual"]),
+                            "class": "info",
+                        },
+                        {
+                            "label": _("Capex remaining"),
+                            "value": format_currency(capex_remaining),
+                            "class": "alert" if capex_remaining < 0 else "info",
+                        },
+                        {
+                            "label": _("Active"),
+                            "value": active_projects,
+                            "class": "info" if active_projects else "",
+                        },
+                        {
+                            "label": _("Opex used"),
+                            "value": format_currency(budget_totals["opex_actual"]),
+                            "class": "info",
+                        },
+                    ][:3],
+                    style_key="projects_summary",
+                )
+            )
 
     if trailer_changelist_url and trailer_metrics.get("total"):
         supplemental_tiles.append(
@@ -441,7 +634,6 @@ def ralph_summary(context):
                 label=_("Trailer Occupancy"),
                 count="{:.0f}%".format(trailer_metrics["average_occupancy_percent"]),
                 url=trailer_changelist_url,
-                css_class="trailer-occupancy",
                 meta=[
                     {
                         "label": _("Occupied"),
@@ -459,6 +651,7 @@ def ralph_summary(context):
                         "class": "alert" if trailer_metrics["servicing"] else "",
                     },
                 ],
+                style_key="supplemental_trailer",
             )
         )
 
@@ -469,7 +662,7 @@ def ralph_summary(context):
                     label=_("{} Utilization").format(item["label"]),
                     count=item["deployed"],
                     url="{}?power_asset_type={}".format(power_changelist_url, item["value"]),
-                    css_class=f"power-{slugify(item['value'])}",
+                    css_class=f"tile-power-{slugify(item['value'])}",
                     meta=[
                         {
                             "label": _("In fleet"),
@@ -486,6 +679,7 @@ def ralph_summary(context):
                             "class": "warning" if item["average_fuel_percent"] and item["average_fuel_percent"] < 35 else "",
                         },
                     ],
+                    style_key="supplemental_power",
                 )
             )
 
@@ -525,6 +719,133 @@ def ralph_summary(context):
         results.append(accept_for_test_asset_tile_data)
 
     return {"results": results}
+
+
+@register.inclusion_tag("admin/templatetags/projects_widget.html", takes_context=True)
+def projects_widget(context):
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if not user or not user.has_perm("assets.view_project"):
+        return {}
+
+    today = timezone.now().date()
+    upcoming = today + timedelta(days=30)
+    projects = Project.objects.all()
+    total = projects.count()
+    active = projects.filter(status=ProjectStatus.active.id).count()
+    planned = projects.filter(status=ProjectStatus.planned.id).count()
+    managerless = projects.filter(manager__isnull=True).count()
+    ending_soon = projects.filter(
+        end_date__isnull=False,
+        end_date__gte=today,
+        end_date__lte=upcoming,
+        status__in=[ProjectStatus.active.id, ProjectStatus.paused.id],
+    ).count()
+    deployed_assets = (
+        DeploymentEntry.objects.filter(project__isnull=False, ended_at__isnull=True)
+        .values("base_object_id")
+        .distinct()
+        .count()
+    )
+    budget_totals = summarize_project_budgets(projects.values_list("pk", flat=True))
+    capex_remaining_total = budget_totals["capex_variance"]
+
+    top_projects_qs = (
+        projects.annotate(
+            active_assets=Count(
+                "deployment_entries",
+                filter=Q(deployment_entries__ended_at__isnull=True),
+                distinct=True,
+            )
+        )
+        .order_by("-active_assets", "-modified")[:5]
+    )
+
+    status_class_map = {
+        ProjectStatus.planned.id: "warning",
+        ProjectStatus.active.id: "info",
+        ProjectStatus.paused.id: "warning",
+        ProjectStatus.completed.id: "info",
+        ProjectStatus.cancelled.id: "alert",
+    }
+
+    project_rows = []
+    for project in top_projects_qs:
+        manager_display = None
+        if project.manager:
+            manager_display = (
+                project.manager.get_full_name() or project.manager.username
+            )
+        project_budget = summarize_project_budgets([project.pk])
+        capex_remaining = project_budget["capex_variance"]
+        project_rows.append(
+            {
+                "name": project.name,
+                "code": project.code,
+                "url": reverse("projects:detail", args=[project.pk]),
+                "status": project.get_status_display(),
+                "status_class": status_class_map.get(project.status, ""),
+                "manager": manager_display,
+                "active_assets": project.active_assets,
+                "location": project.location_name,
+                "end_date": project.end_date,
+                "capex_used": format_currency(project_budget["capex_actual"]),
+                "capex_budget": format_currency(project_budget["capex_budget"]),
+                "capex_remaining": format_currency(capex_remaining),
+                "capex_remaining_class": "alert" if capex_remaining < 0 else "info",
+                "opex_used": format_currency(project_budget["opex_actual"]),
+            }
+        )
+
+    stats = [
+        {
+            "label": _("Active"),
+            "value": active,
+            "class": "info" if active else "",
+        },
+        {
+            "label": _("Planned"),
+            "value": planned,
+            "class": "info" if planned else "",
+        },
+        {
+            "label": _("Ending 30d"),
+            "value": ending_soon,
+            "class": "warning" if ending_soon else "",
+        },
+        {
+            "label": _("No manager"),
+            "value": managerless,
+            "class": "alert" if managerless else "",
+        },
+        {
+            "label": _("Assets deployed"),
+            "value": deployed_assets,
+            "class": "info" if deployed_assets else "",
+        },
+        {
+            "label": _("Capex used"),
+            "value": format_currency(budget_totals["capex_actual"]),
+            "class": "info",
+        },
+        {
+            "label": _("Capex remaining"),
+            "value": format_currency(capex_remaining_total),
+            "class": "alert" if capex_remaining_total < 0 else "info",
+        },
+        {
+            "label": _("Opex used"),
+            "value": format_currency(budget_totals["opex_actual"]),
+            "class": "info",
+        },
+    ]
+
+    return {
+        "total_projects": total,
+        "projects_url": reverse("projects:list"),
+        "stats": stats,
+        "project_rows": project_rows,
+    }
 
 
 @register.inclusion_tag("admin/templatetags/my_services.html")
