@@ -28,6 +28,7 @@ from ralph.assets.models.assets import (
     IntegrationEndpointType,
     IntegrationDeliveryLog,
     IntegrationDeliveryStatus,
+    Location,
     SLAPolicy,
     ComplianceRecord,
     ComplianceTemplate,
@@ -794,10 +795,12 @@ class DeploymentEntryAdmin(RalphAdmin):
         "project__code",
         "project__name",
         "location",
+        "location_ref__name",
+        "location_ref__code",
         "shift_label",
         "notes",
     )
-    raw_id_fields = ("base_object", "project", "assigned_to_user", "assigned_to_team")
+    raw_id_fields = ("base_object", "project", "assigned_to_user", "assigned_to_team", "location_ref")
     readonly_fields = ("created", "modified", "roster_summary")
     inlines = [DeploymentAssignmentInline]
 
@@ -1157,6 +1160,13 @@ class ProfitCenterAdmin(RalphAdmin):
     search_fields = ["name"]
 
 
+@register(Location)
+class LocationAdmin(RalphAdmin):
+    list_display = ("name", "code", "color_hex", "latitude", "longitude", "created")
+    search_fields = ("name", "code", "external_id", "description")
+    readonly_fields = ("created", "modified")
+
+
 @register(Project)
 class ProjectAdmin(RalphAdmin):
     list_display = (
@@ -1165,13 +1175,13 @@ class ProjectAdmin(RalphAdmin):
         "status_display",
         "manager",
         "default_team",
-        "location_name",
+        "location_display",
         "active_assets",
         "created",
     )
     list_filter = ("status", "default_team")
-    search_fields = ("name", "code", "external_id", "location_name")
-    raw_id_fields = ("manager", "default_team")
+    search_fields = ("name", "code", "external_id", "location_name", "location__name", "location__code")
+    raw_id_fields = ("manager", "default_team", "location")
     readonly_fields = ("created", "modified")
     ordering = ("name", "code")
 
@@ -1184,6 +1194,11 @@ class ProjectAdmin(RalphAdmin):
         return instance.active_assets_count
 
     active_assets.short_description = _("Active assets")
+
+    def location_display(self, instance):
+        return instance.location or instance.location_name
+
+    location_display.short_description = _("Location")
 
 
 @register(AssetModel)

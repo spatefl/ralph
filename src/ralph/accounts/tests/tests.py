@@ -12,6 +12,7 @@ from rest_framework import status
 from ralph.accounts.ldap import manager_country_attribute_populate
 from ralph.accounts.management.commands.ldap_sync import _truncate, ldap_module_exists
 from ralph.accounts.models import RalphUser, Region
+from ralph.accounts.tests.factories import TeamFactory
 from ralph.api.tests._base import RalphAPITestCase
 from ralph.assets.tests.factories import (
     BackOfficeAssetModelFactory,
@@ -204,6 +205,28 @@ class StockTakingTests(TestCase, ClientMixin):
             follow=True,
         )
         self.assertEqual(response.status_code, 403)
+
+
+class AccountsAPITests(RalphAPITestCase):
+    def test_superuser_can_register_user_with_password(self):
+        team = TeamFactory()
+        url = reverse("ralphuser-list")
+        payload = {
+            "username": "sc3_user",
+            "email": "sc3@example.com",
+            "first_name": "SC3",
+            "last_name": "User",
+            "password": "SuperSecure!2",
+            "team": team.pk,
+        }
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = RalphUser.objects.get(username="sc3_user")
+        self.assertTrue(check_password(payload["password"], created.password))
+        self.assertEqual(created.team, team)
+        self.assertNotIn("password", response.data)
 
 
 class RalphUserAdminTests(TestCase, ClientMixin):

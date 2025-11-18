@@ -60,10 +60,11 @@ class FleetAssetViewSet(RalphAPIViewSet):
         ),
         Prefetch(
             "deployment_entries",
-            queryset=DeploymentEntry.objects.order_by("-started_at", "-pk").prefetch_related(
-                "assignments__user",
-                "telemetry_events",
-            ),
+            queryset=DeploymentEntry.objects.select_related(
+                "project", "assigned_to_user", "assigned_to_team", "location_ref"
+            )
+            .order_by("-started_at", "-pk")
+            .prefetch_related("assignments__user", "telemetry_events"),
         ),
         Prefetch(
             "telemetry_readings",

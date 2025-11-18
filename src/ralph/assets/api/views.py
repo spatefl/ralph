@@ -86,13 +86,20 @@ class ServiceEnvironmentViewSet(RalphAPIViewSet):
     additional_filter_class = ServiceEnvFilterSet
 
 
+class LocationViewSet(RalphAPIViewSet):
+    queryset = models.Location.objects.all()
+    serializer_class = serializers.LocationSerializer
+    filterset_fields = ["code", "external_id"]
+    search_fields = ("name", "code", "external_id")
+
+
 class ProjectViewSet(RalphAPIViewSet):
-    queryset = models.Project.objects.select_related("manager", "default_team")
+    queryset = models.Project.objects.select_related("manager", "default_team", "location")
     serializer_class = serializers.ProjectSerializer
     save_serializer_class = serializers.ProjectSaveSerializer
     prefetch_related = []
-    filterset_fields = ["status", "manager", "code", "external_id"]
-    search_fields = ("name", "code", "external_id", "location_name")
+    filterset_fields = ["status", "manager", "code", "external_id", "location"]
+    search_fields = ("name", "code", "external_id", "location_name", "location__name", "location__code")
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -102,7 +109,7 @@ class ProjectViewSet(RalphAPIViewSet):
                 filter=Q(deployment_entries__ended_at__isnull=True),
                 distinct=True,
             )
-        ).select_related("manager", "default_team")
+        ).select_related("manager", "default_team", "location")
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
@@ -111,7 +118,11 @@ class ProjectViewSet(RalphAPIViewSet):
                 Prefetch(
                     "deployment_entries",
                     queryset=models.DeploymentEntry.objects.select_related(
-                        "base_object", "assigned_to_user", "assigned_to_team", "project"
+                        "base_object",
+                        "assigned_to_user",
+                        "assigned_to_team",
+                        "project",
+                        "location_ref",
                     ),
                 )
             )
@@ -137,6 +148,7 @@ class ProjectViewSet(RalphAPIViewSet):
                 status=assignment.get("status"),
                 shift_label=assignment.get("shift_label"),
                 location=assignment.get("location"),
+                location_ref=assignment.get("location_ref"),
                 notes=assignment.get("notes"),
                 handover_notes=assignment.get("handover_notes"),
             )

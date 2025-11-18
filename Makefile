@@ -27,7 +27,7 @@ export DB_WAIT_SLEEP
 DB_WAIT_CMD?=cd /opt/sirius-ralph && \
   DB_WAIT_RETRIES=$(DB_WAIT_RETRIES) DB_WAIT_SLEEP=$(DB_WAIT_SLEEP) scripts/wait_for_db.sh
 
-.PHONY: test flake clean clean-pyc stack-clean coverage docs coveralls venv venv-install-dev venv-clean up logs
+.PHONY: test flake clean clean-pyc stack-clean coverage docs coveralls venv venv-install-dev venv-clean up down logs
 
 # release-new-version is used by ralph mainteiners prior to publishing
 # new version of the package. The command generates the debian changelog
@@ -189,6 +189,9 @@ up:
 	$(COMPOSE) -f $(STACK_COMPOSE_FILE) exec -T $(STACK_WEB_SERVICE) $(CONTAINER_SHELL) "$(MIGRATE_CMD)"
 	$(COMPOSE) -f $(STACK_COMPOSE_FILE) exec -T $(STACK_DB_SERVICE) /bin/sh -lc "mysql -uroot -p\$$MYSQL_ROOT_PASSWORD -e \"DROP DATABASE IF EXISTS $(DATABASE_TEST_NAME); GRANT ALL PRIVILEGES ON $(DATABASE_TEST_NAME).* TO '$(DATABASE_USER)'@'%'; GRANT CREATE, DROP ON *.* TO '$(DATABASE_USER)'@'%'; FLUSH PRIVILEGES;\""
 	$(COMPOSE) -f $(STACK_COMPOSE_FILE) exec -T $(STACK_WEB_SERVICE) $(CONTAINER_SHELL) "$(SITETREE_CMD)"
+
+down:
+	$(COMPOSE) -f $(STACK_COMPOSE_FILE) down --remove-orphans
 
 logs:
 	mkdir -p $(TMP_LOG_DIR)

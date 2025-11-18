@@ -71,6 +71,7 @@ from ralph.assets.models.assets import (
     Manufacturer,
     ManufacturerKind,
     ProfitCenter,
+    Location,
     Service,
     ServiceEnvironment,
 )
@@ -163,6 +164,7 @@ __all__ = [
     "ModelVisualizationLayout",
     "ObjectModelType",
     "ProfitCenter",
+    "Location",
     "Processor",
     "Service",
     "ServiceEnvironment",

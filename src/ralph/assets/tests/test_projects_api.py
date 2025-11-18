@@ -4,7 +4,7 @@ from rest_framework import status
 from ralph.api.tests._base import RalphAPITestCase
 from ralph.assets.models import DeploymentEntry
 from ralph.assets.services.projects import assign_asset_to_project
-from ralph.assets.tests.factories import ProjectFactory
+from ralph.assets.tests.factories import LocationFactory, ProjectFactory
 from ralph.back_office.tests.factories import BackOfficeAssetFactory
 
 
@@ -63,3 +63,44 @@ class ProjectAPITests(RalphAPITestCase):
             item for item in response.data["results"] if item["id"] == project.id
         )
         self.assertEqual(record["active_assets_count"], 1)
+
+    def test_assign_asset_tracks_location_ref(self):
+        location = LocationFactory(color_hex="#123456")
+        project = ProjectFactory(location=location)
+        asset = BackOfficeAssetFactory()
+
+        url = reverse("project-assign-assets", args=(project.pk,))
+        payload = {
+            "assignments": [
+                {
+                    "asset": asset.pk,
+                    "location_id": location.pk,
+                    "shift_label": "Alpha",
+                }
+            ]
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entry = DeploymentEntry.objects.get(project=project, base_object_id=asset.pk)
+        self.assertEqual(entry.location_ref, location)
+        self.assertEqual(entry.location, location.name)
+
+
+class LocationAPITests(RalphAPITestCase):
+    def test_create_location_with_color(self):
+        url = reverse("location-list")
+        payload = {
+            "name": "SC3 Ops Yard",
+            "code": "YARD-001",
+            "external_id": "ext-123",
+            "color_hex": "#00CC99",
+            "latitude": "34.000000",
+            "longitude": "-117.000000",
+        }
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["color_hex"], payload["color_hex"])
+        self.assertEqual(response.data["code"], payload["code"])

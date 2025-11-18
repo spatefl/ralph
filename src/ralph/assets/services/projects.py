@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
-from ralph.assets.models import BaseObject, DeploymentEntry, DeploymentStatus, Project
+from ralph.assets.models import BaseObject, DeploymentEntry, DeploymentStatus, Location, Project
 
 User = get_user_model()
 
@@ -51,6 +51,7 @@ def assign_asset_to_project(
     assignee: Optional[User] = None,
     status: Optional[int] = None,
     location: Optional[str] = None,
+    location_ref: Optional[Location] = None,
     shift_label: Optional[str] = None,
     notes: Optional[str] = None,
     started_at=None,
@@ -59,7 +60,11 @@ def assign_asset_to_project(
     status = status or DeploymentStatus.deployed.id
     assignee = assignee or (project.default_assignee() if project else None)
     target_team = project.default_team if project else None
-    location = location if location is not None else (project.location_name if project else "")
+    location_ref = location_ref or (project.location if project else None)
+    if location_ref and location is None:
+        location = location_ref.name
+    if location is None:
+        location = project.location_name if project else ""
     started_at = started_at or timezone.now()
 
     entry = (
@@ -80,6 +85,7 @@ def assign_asset_to_project(
             status=status,
             shift_label=shift_label or "",
             location=location or "",
+            location_ref=location_ref,
             assigned_to_user=assignee,
             assigned_to_team=target_team,
             started_at=started_at,
@@ -96,6 +102,10 @@ def assign_asset_to_project(
         if location is not None and entry.location != location:
             entry.location = location
             updates.add("location")
+        new_location_id = location_ref.id if location_ref else None
+        if entry.location_ref_id != new_location_id:
+            entry.location_ref = location_ref
+            updates.add("location_ref")
         if entry.assigned_to_team != target_team:
             entry.assigned_to_team = target_team
             updates.add("assigned_to_team")

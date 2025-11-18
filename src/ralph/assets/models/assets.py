@@ -459,6 +459,20 @@ class Asset(AdminAbsoluteUrlMixin, PriceMixin, BaseObject):
         max_length=2048,
         null=True,
     )
+    color_hex = models.CharField(
+        max_length=7,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^#[0-9A-Fa-f]{6}$",
+                message=_("Use #RRGGBB hex colors for dashboard badges."),
+                code="invalid_hex_color",
+            )
+        ],
+        help_text=_(
+            "Optional dashboard color for telemetry / IoT assets synced from SC3."
+        ),
+    )
     budget_info = models.ForeignKey(
         BudgetInfo,
         blank=True,
@@ -2191,6 +2205,55 @@ class AssetUtilizationSnapshot(AdminAbsoluteUrlMixin, TimeStampMixin, models.Mod
         snapshot.save(update_fields=["active_seconds", "idle_seconds", "distance_km", "modified"])
 
 
+class Location(AdminAbsoluteUrlMixin, NamedMixin.NonUnique, TimeStampMixin, models.Model):
+    code = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text=_("Short unique identifier used by SC3 and reporting."),
+    )
+    external_id = models.CharField(
+        max_length=128,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text=_("Optional external identifier supplied by SC3."),
+    )
+    color_hex = models.CharField(
+        max_length=7,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^#[0-9A-Fa-f]{6}$",
+                message=_("Use #RRGGBB hex colors for dashboard badges."),
+                code="invalid_hex_color",
+            )
+        ],
+        help_text=_("Dashboard color propagated to telemetry-enabled assets at this location."),
+    )
+    description = models.TextField(blank=True)
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ("name", "code")
+        verbose_name = _("Location")
+        verbose_name_plural = _("Locations")
+
+    def __str__(self):
+        return f"{self.name} ({self.code})" if self.code else self.name
+
+
 class ProjectStatus(Choices):
     _ = Choices.Choice
 
@@ -2231,6 +2294,14 @@ class Project(AdminAbsoluteUrlMixin, NamedMixin.NonUnique, TimeStampMixin, model
         blank=True,
         on_delete=models.SET_NULL,
         related_name="projects",
+    )
+    location = models.ForeignKey(
+        Location,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="projects",
+        help_text=_("Linked location provided by SC3."),
     )
     location_name = models.CharField(
         max_length=128,
@@ -2405,6 +2476,14 @@ class DeploymentEntry(AdminAbsoluteUrlMixin, TimeStampMixin, models.Model):
         max_length=128,
         blank=True,
         help_text=_("Human readable deployment location (site, depot, project)."),
+    )
+    location_ref = models.ForeignKey(
+        Location,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deployments",
+        help_text=_("Linked location record for this deployment."),
     )
     latitude = models.DecimalField(
         max_digits=9,

@@ -12,6 +12,7 @@ from ralph.assets.models.assets import (
     Environment,
     Manufacturer,
     ManufacturerKind,
+    Location,
     ProfitCenter,
     Project,
     ProjectStatus,
@@ -321,13 +322,23 @@ class DiskFactory(DjangoModelFactory):
         model = Disk
 
 
+class LocationFactory(DjangoModelFactory):
+    name = factory.Faker("city")
+    code = factory.Sequence(lambda n: f"LOC-{n:04d}")
+    color_hex = factory.Iterator(["#3366CC", "#CC3333", "#33AA88"])
+
+    class Meta:
+        model = Location
+
+
 class ProjectFactory(DjangoModelFactory):
     name = factory.Faker("company")
     code = factory.Sequence(lambda n: f"PRJ-{n:04d}")
     status = ProjectStatus.active.id
     manager = factory.SubFactory(UserFactory)
     default_team = factory.SubFactory(TeamFactory)
-    location_name = factory.Faker("city")
+    location = factory.SubFactory(LocationFactory)
+    location_name = factory.LazyAttribute(lambda obj: obj.location.name)
 
     class Meta:
         model = Project

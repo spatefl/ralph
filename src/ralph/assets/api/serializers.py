@@ -49,6 +49,7 @@ from ralph.assets.models import (
     DisposalStatus,
     ProfitCenter,
     Project,
+    Location,
     DeploymentStatus,
     Service,
     ServiceEnvironment,
@@ -108,10 +109,31 @@ class SimpleTeamSerializer(RalphAPISerializer):
         fields = ("id", "name", "url")
 
 
+class LocationSerializer(RalphAPISerializer):
+    class Meta:
+        model = Location
+        fields = (
+            "id",
+            "url",
+            "name",
+            "code",
+            "external_id",
+            "color_hex",
+            "description",
+            "latitude",
+            "longitude",
+            "notes",
+            "created",
+            "modified",
+        )
+
+
 class ProjectSerializer(RalphAPISerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     manager = SimpleRalphUserSerializer(read_only=True)
     default_team = SimpleTeamSerializer(read_only=True)
+    location = LocationSerializer(read_only=True)
+    location_id = serializers.IntegerField(source="location_id", read_only=True)
     active_assets_count = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -126,6 +148,8 @@ class ProjectSerializer(RalphAPISerializer):
             "status_display",
             "manager",
             "default_team",
+            "location",
+            "location_id",
             "location_name",
             "latitude",
             "longitude",
@@ -146,6 +170,9 @@ class ProjectSaveSerializer(RalphAPISaveSerializer):
     default_team = serializers.PrimaryKeyRelatedField(
         queryset=Team.objects.all(), allow_null=True, required=False
     )
+    location = serializers.PrimaryKeyRelatedField(
+        queryset=Location.objects.all(), allow_null=True, required=False
+    )
 
     class Meta:
         model = Project
@@ -156,6 +183,7 @@ class ProjectSaveSerializer(RalphAPISaveSerializer):
             "status",
             "manager",
             "default_team",
+            "location",
             "location_name",
             "latitude",
             "longitude",
@@ -174,7 +202,11 @@ class ProjectDetailSerializer(ProjectSerializer):
 
     def get_deployments(self, obj):
         entries = obj.deployment_entries.select_related(
-            "base_object", "assigned_to_user", "assigned_to_team"
+            "base_object",
+            "assigned_to_user",
+            "assigned_to_team",
+            "project",
+            "location_ref",
         ).order_by("-started_at", "-pk")
         return DeploymentEntrySerializer(
             entries, many=True, context=self.context
@@ -193,6 +225,12 @@ class ProjectAssignmentItemSerializer(serializers.Serializer):
     )
     shift_label = serializers.CharField(required=False, allow_blank=True)
     location = serializers.CharField(required=False, allow_blank=True)
+    location_id = serializers.PrimaryKeyRelatedField(
+        queryset=Location.objects.all(),
+        required=False,
+        allow_null=True,
+        source="location_ref",
+    )
     notes = serializers.CharField(required=False, allow_blank=True)
     handover_notes = serializers.CharField(required=False, allow_blank=True)
 
@@ -835,6 +873,15 @@ class DeploymentEntrySerializer(RalphAPISerializer):
     project_code = serializers.CharField(source="project.code", read_only=True)
     asset = BaseObjectSimpleSerializer(source="base_object", read_only=True)
     asset_id = serializers.IntegerField(source="base_object_id", read_only=True)
+    location_id = serializers.IntegerField(
+        source="location_ref_id", read_only=True, allow_null=True
+    )
+    location_name = serializers.CharField(
+        source="location_ref.name", read_only=True, allow_null=True
+    )
+    location_color = serializers.CharField(
+        source="location_ref.color_hex", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = DeploymentEntry
@@ -854,6 +901,9 @@ class DeploymentEntrySerializer(RalphAPISerializer):
             "assigned_to_user",
             "assigned_to_team",
             "location",
+            "location_id",
+            "location_name",
+            "location_color",
             "latitude",
             "longitude",
             "current_speed_kmh",

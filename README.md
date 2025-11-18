@@ -92,6 +92,7 @@ The `sirius-custom` branch ships with a full dockerised stack that mirrors the s
      ```bash
      docker compose -f docker/docker-compose-local-dev.yml exec assets-web venv/bin/ralph createsuperuser
      ```
+   * Stop the stack without dropping DB/media volumes with `make down` (runs `docker compose down --remove-orphans`).
    * Tear down with `make clean` (includes `docker compose down --volumes` and removes `tmp/logs/`).
 
 6. **Firewall reminder (Ubuntu / UFW)**
@@ -276,6 +277,18 @@ Base URL examples (authenticated via DRF token or session):
 
 - Reporting:
   - `/api/reporting/inventory/`, `/api/reporting/utilization/`, `/api/reporting/maintenance-compliance/`, `/api/reporting/financial/`, `/api/reporting/lifecycle/`, `/api/reporting/resources/`
+- SC3 intake (registrations):
+  - `/api/locations/` — register SC3 locations (with `color_hex`) for project/mission routing.
+  - `/api/projects/` — include `location` (FK) and `location_name` to align with SC3 projects/missions.
+  - `/api/users/` and `/api/teams/` — superusers can create/update SC3 user/team records for assignments.
+  - Assets now expose `color_hex` to carry SC3 dashboard color coding for telemetry/IoT devices.
+
+SC3 registration workflow:
+
+- Register locations via `POST /api/locations/` with `name`, `code`, optional `color_hex` (`#RRGGBB`), lat/long, and `external_id` values supplied by SC3.
+- When creating/updating projects, set `location` (FK) plus `location_name` (free-text fallback). API responses return both so SC3 can match by ID or label.
+- `POST /api/projects/<id>/assign_assets/` accepts `location_id` in each assignment; deployments then include `location_id`, `location_name`, and `location_color` for dashboards.
+- Superusers may seed SC3 principals by POSTing to `/api/users/` with a write-only `password` (blank sets an unusable password when SSO handles auth) and mapping them to `/api/teams/` as needed.
 
 Integration patterns with SC3
 
