@@ -1236,7 +1236,7 @@ class AssetModelAdmin(CustomFieldValueAdminMixin, RalphAdmin):
 @register(Category)
 class CategoryAdmin(RalphMPTTAdmin):
     search_fields = ["name"]
-    list_display = ["name", "code"]
+    list_display = ["name", "code", "is_field_gear"]
     resource_classes = [resources.CategoryResource]
 
     def get_actions(self, request):
@@ -1276,7 +1276,7 @@ class AssetAdmin(RalphAdmin):
 @register(BaseObject)
 class BaseObjectAdmin(RalphAdmin):
     list_display = ["repr"]
-    raw_id_fields = ["parent", "service_env"]
+    raw_id_fields = ["parent", "service_env", "org_location"]
     exclude = ("content_type",)
     list_select_related = ["content_type"]
 

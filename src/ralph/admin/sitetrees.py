@@ -177,6 +177,21 @@ sitetrees = [
                 ],
             ),
             ralph_item(
+                title=_("Field Gear"),
+                url="admin:back_office_fieldgearasset_changelist",
+                url_as_pattern=False,
+                perms_mode_all=False,
+                children=[
+                    section(_("All Field Gear"), "back_office", "FieldGearAsset"),
+                    ralph_item(
+                        title=_("Field Gear Categories"),
+                        url="admin:assets_category_changelist",
+                        url_as_pattern=False,
+                        perms_mode_all=False,
+                    ),
+                ],
+            ),
+            ralph_item(
                 title=_("Drones"),
                 url="#",
                 url_as_pattern=False,
@@ -244,7 +259,7 @@ sitetrees = [
                 ],
             ),
             ralph_item(
-                title=_("Back Office"),
+                title=_("Office"),
                 url="#",
                 url_as_pattern=False,
                 perms_mode_all=False,
@@ -400,7 +415,6 @@ sitetrees = [
                     section(_("Transitions"), "transitions", "TransitionModel"),
                     section(_("Report template"), "reports", "Report"),
                     section(_("Custom fields"), "custom_fields", "CustomField"),
-                    section(_("Warehouses"), "back_office", "warehouse"),
                     section(
                         _("Office Infrastructures"),
                         "back_office",

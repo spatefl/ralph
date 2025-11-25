@@ -314,6 +314,7 @@ LOGGING = {
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
+        "ralph.lib.auth.keycloak.KeycloakJWTAuthentication",
         "rest_framework.authentication.TokenAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
@@ -352,6 +353,19 @@ if API_THROTTLING:
             },
         }
     )
+
+# Keycloak / OIDC
+KEYCLOAK_ISSUER = os.environ.get("KEYCLOAK_ISSUER", "http://localhost:8180/realms/sc3")
+KEYCLOAK_JWKS_URL = os.environ.get(
+    "KEYCLOAK_JWKS_URL",
+    f"{KEYCLOAK_ISSUER}/protocol/openid-connect/certs",
+)
+KEYCLOAK_AUDIENCE = os.environ.get(
+    "KEYCLOAK_AUDIENCE",
+    os.environ.get("KEYCLOAK_CLIENT_ID", "sirius-asset-manager"),
+)
+KEYCLOAK_REQUIRED_ROLE = os.environ.get("KEYCLOAK_REQUIRED_ROLE")  # optional
+KEYCLOAK_SYNC_GROUPS = bool_from_env("KEYCLOAK_SYNC_GROUPS", True)
 
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "ralph_ng")
 REDIS_SENTINEL_ENABLED = bool_from_env("REDIS_SENTINEL_ENABLED", False)

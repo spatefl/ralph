@@ -236,6 +236,10 @@ class Category(
     imei_required = models.BooleanField(default=False)
     allow_deployment = models.BooleanField(default=False)
     show_buyout_date = models.BooleanField(default=False)
+    is_field_gear = models.BooleanField(
+        default=False,
+        help_text=_("Mark categories that represent portable tools / field gear."),
+    )
     default_depreciation_rate = models.DecimalField(
         blank=True,
         decimal_places=2,

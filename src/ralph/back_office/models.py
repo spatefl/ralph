@@ -214,8 +214,8 @@ class BackOfficeAsset(Regionalizable, Asset):
     )
 
     class Meta:
-        verbose_name = _("Back Office Asset")
-        verbose_name_plural = _("Back Office Assets")
+        verbose_name = _("Office Asset")
+        verbose_name_plural = _("Office Assets")
 
     @property
     def country_code(self):
@@ -239,12 +239,20 @@ class BackOfficeAsset(Regionalizable, Asset):
             raise ValidationError(
                 {"imei": _("%(imei)s is not IMEI format") % {"imei": self.imei}}
             )
-        if self.imei2 and not self.validate_imei(self.imei2):
-            raise ValidationError(
-                {
-                    "imei2": _("%(imei)s is not IMEI format") % {"imei": self.imei2}  # noqa
-                }
-            )
+
+
+class FieldGearAssetManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(model__category__is_field_gear=True)
+
+
+class FieldGearAsset(BackOfficeAsset):
+    objects = FieldGearAssetManager()
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Field gear asset")
+        verbose_name_plural = _("Field gear assets")
 
     def is_liquidated(self, date=None):
         date = date or datetime.date.today()

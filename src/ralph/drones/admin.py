@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.admin.sites import AlreadyRegistered, NotRegistered
@@ -14,6 +15,7 @@ from ralph.assets.models.choices import ObjectModelType
 from ralph.assets.models.assets import (
     MaintenanceRecordStatus,
     ComplianceRecordStatus,
+    Location,
 )
 from ralph.assets.admin import (
     MaintenanceRecordInline,
@@ -56,6 +58,25 @@ class DroneAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
         service_env_field = self.fields.get("service_env")
         if service_env_field:
             service_env_field.required = False
+        assigned_location = self.fields.get("assigned_location")
+        if assigned_location:
+            locations = Location.objects.all().order_by("name")
+            choices = [("", "---------")]
+            choices.extend(
+                (loc.code, f"{loc.name} ({loc.code})") if loc.code else (loc.name, loc.name)
+                for loc in locations
+            )
+            current = self.initial.get("assigned_location") or getattr(
+                self.instance, "assigned_location", None
+            )
+            if current and current not in {choice[0] for choice in choices}:
+                choices.append((current, f"{current} (existing)"))
+            self.fields["assigned_location"] = forms.ChoiceField(
+                choices=choices,
+                required=False,
+                label=assigned_location.label,
+                help_text=_("Select assigned location from SC3 Locations."),
+            )
 
 
 class DroneOperationsView(RalphDetailViewAdmin):
@@ -183,6 +204,7 @@ class DroneAssetAdmin(
         "owner",
         "user",
         "assigned_team",
+        "org_location",
         "region",
         "service_env",
         "budget_info",
@@ -301,6 +323,7 @@ class DroneAssetAdmin(
                     "owner",
                     "user",
                     "assigned_team",
+                    "org_location",
                     "assigned_location",
                     "home_location_description",
                     "last_known_latitude",

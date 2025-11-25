@@ -32,7 +32,6 @@ class SIMCardSerializer(RalphAPISerializer):
             "puk1",
             "user",
             "owner",
-            "warehouse",
             "carrier",
             "features",
             "quarantine_until",

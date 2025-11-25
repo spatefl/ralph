@@ -9,6 +9,7 @@ from ralph.admin.views.extra import RalphDetailViewAdmin
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.assets.models.choices import ObjectModelType
 from ralph.assets.models.assets import (
+    Location,
     MaintenanceRecordStatus,
     ComplianceRecordStatus,
 )
@@ -48,6 +49,41 @@ class HeavyEquipmentAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.fo
         service_env_field = self.fields.get("service_env")
         if service_env_field:
             service_env_field.required = False
+        # Replace free-text deployment site with a dropdown fed by SC3 locations.
+        def _build_location_choices():
+            locations = Location.objects.all().order_by("name")
+            choices = [("", "---------")]
+            choices.extend(
+                (loc.code, f"{loc.name} ({loc.code})") if loc.code else (loc.name, loc.name)
+                for loc in locations
+            )
+            return choices
+
+        def _hydrate_choice_field(field_name, label_text, help_text):
+            field = self.fields.get(field_name)
+            if not field:
+                return
+            choices = _build_location_choices()
+            current = self.initial.get(field_name) or getattr(self.instance, field_name, None)
+            if current and current not in {choice[0] for choice in choices}:
+                choices.append((current, f"{current} (existing)"))
+            self.fields[field_name] = forms.ChoiceField(
+                choices=choices,
+                required=False,
+                label=label_text,
+                help_text=help_text,
+            )
+
+        _hydrate_choice_field(
+            "deployment_site",
+            getattr(self.fields.get("deployment_site"), "label", _("Deployment site")),
+            _("Select deployment site from SC3 Locations."),
+        )
+        _hydrate_choice_field(
+            "assigned_location",
+            getattr(self.fields.get("assigned_location"), "label", _("Assigned location")),
+            _("Select assigned location from SC3 Locations."),
+        )
         equipment_field = self.fields.get("equipment_type")
         if equipment_field:
             equipment_field.choices = [
@@ -180,6 +216,7 @@ class HeavyEquipmentAssetAdmin(
         "model",
         "owner",
         "user",
+        "org_location",
         "region",
         "service_env",
         "budget_info",
@@ -246,6 +283,7 @@ class HeavyEquipmentAssetAdmin(
             _("Deployment"),
             {
                 "fields": (
+                    "org_location",
                     "deployment_site",
                     "assigned_location",
                     "deployed_on",

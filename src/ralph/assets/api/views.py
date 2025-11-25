@@ -219,13 +219,14 @@ BASE_OBJECT_NAME_FILTER_FIELDS = [
 class BaseObjectViewSet(PolymorphicViewSetMixin, RalphAPIViewSet):
     queryset = models.BaseObject.polymorphic_objects.all()
     serializer_class = serializers.BaseObjectPolymorphicSerializer
-    http_method_names = ["get", "options", "head"]
+    http_method_names = ["get", "options", "head", "post"]
     filterset_fields = [
         "id",
         "service_env",
         "service_env",
         "service_env__service__uid",
         "content_type",
+        "org_location",
     ]
     extended_filter_fields = {
         "name": BASE_OBJECT_NAME_FILTER_FIELDS,
@@ -247,7 +248,37 @@ class BaseObjectViewSet(PolymorphicViewSetMixin, RalphAPIViewSet):
     additional_filter_class = BaseObjectFilterSet
 
     def get_object(self):
-        return self.get_queryset().filter(pk=self.kwargs["pk"]).first()
+        obj = self.get_queryset().filter(pk=self.kwargs["pk"]).first()
+        if not obj:
+            raise NotFound()
+        return obj
+
+    @action(detail=True, methods=["post"], url_path="transfer")
+    def transfer(self, request, pk=None):
+        asset = self.get_object()
+        payload = serializers.DeploymentTransferSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        location_ref = data["location_ref"]
+        location = data.get("location")
+        if location is None and location_ref:
+            location = location_ref.name
+        entry = assign_asset_to_project(
+            project=None,
+            asset=asset,
+            assignee=data.get("assignee"),
+            status=data.get("status"),
+            location=location,
+            location_ref=location_ref,
+            shift_label=data.get("shift_label"),
+            notes=data.get("notes"),
+            started_at=data.get("started_at"),
+            handover_notes=data.get("handover_notes"),
+        )
+        serializer = serializers.DeploymentEntrySerializer(
+            entry, context=self.get_serializer_context()
+        )
+        return Response(serializer.data, status=http_status.HTTP_200_OK)
 
 
 class AssetHolderViewSet(RalphAPIViewSet):
@@ -349,6 +380,7 @@ class DCHostViewSet(BaseObjectViewSetMixin, RalphAPIViewSet):
         "service_env",
         "service_env__service__uid",
         "content_type",
+        "org_location",
     ]
     select_related = [
         "service_env__service",

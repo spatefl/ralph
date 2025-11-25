@@ -64,6 +64,7 @@ TILE_STYLE_MAP = {
     "category_trailers": {"class": "tile-trailers", "icon": "fa-truck"},
     "category_power-lighting": {"class": "tile-power", "icon": "fa-bolt"},
     "category_fleet-assets": {"class": "tile-fleet", "icon": "fa-bus"},
+    "category_field-gear": {"class": "tile-field-gear", "icon": "fa-wrench"},
     "category_drones": {"class": "tile-drones", "icon": "fa-plane"},
     "category_sensors": {"class": "tile-sensors", "icon": "fa-wifi"},
     "projects_summary": {"class": "tile-projects", "icon": "fa-tasks"},
@@ -488,6 +489,7 @@ def ralph_summary(context):
     power_changelist_url = None
 
     asset_tiles = [
+        ("back_office", "FieldGearAsset", _("Field Gear"), "field-gear"),
         ("heavy_equipment", "HeavyEquipmentAsset", _("Heavy Equipment"), "heavy-equipment"),
         ("trailers", "TrailerAsset", _("Trailers"), "trailers"),
         ("power", "PowerAsset", _("Power & Lighting"), "power-lighting"),
@@ -504,15 +506,17 @@ def ralph_summary(context):
         perm = f"{app_label}.view_{model._meta.model_name}"
         if not user.has_perm(perm):
             continue
+        base_changelist = "admin:{}_{}_changelist".format(
+            model._meta.app_label, model._meta.model_name
+        )
         try:
-            changelist_url = reverse(
-                "admin:{}_{}_changelist".format(
-                    model._meta.app_label, model._meta.model_name
-                )
-            )
+            changelist_url = reverse(base_changelist)
         except NoReverseMatch:
             continue
         queryset = model.objects.all()
+        if app_label == "back_office" and model_name == "FieldGearAsset":
+            # proxy manager already scopes to field gear
+            pass
         if model is HeavyEquipmentAsset:
             queryset = queryset.filter(equipment_type__in=HeavyEquipmentAsset.MACHINERY_TYPES)
         elif model is TrailerAsset:

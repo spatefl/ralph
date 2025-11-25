@@ -4,18 +4,7 @@ from ralph.api import RalphAPISerializer, RalphAPIViewSet, router
 from ralph.assets.api.serializers import AssetSerializer
 from ralph.assets.api.views import base_object_descendant_prefetch_related
 from ralph.back_office.admin import BackOfficeAssetAdmin
-from ralph.back_office.models import BackOfficeAsset, OfficeInfrastructure, Warehouse
-
-
-class WarehouseSerializer(RalphAPISerializer):
-    class Meta:
-        model = Warehouse
-        fields = "__all__"
-
-
-class WarehouseViewSet(RalphAPIViewSet):
-    queryset = Warehouse.objects.all()
-    serializer_class = WarehouseSerializer
+from ralph.back_office.models import BackOfficeAsset, OfficeInfrastructure
 
 
 class OfficeInfrastructureSerializer(RalphAPISerializer):
@@ -45,6 +34,7 @@ class BackOfficeAssetSerializer(AssetSerializer):
     class Meta(AssetSerializer.Meta):
         model = BackOfficeAsset
         depth = 2
+        exclude = getattr(AssetSerializer.Meta, "exclude", ()) + ("warehouse",)
 
 
 class BackOfficeAssetViewSet(RalphAPIViewSet):
@@ -71,7 +61,6 @@ class BackOfficeAssetViewSet(RalphAPIViewSet):
     serializer_class = BackOfficeAssetSerializer
 
 
-router.register(r"warehouses", WarehouseViewSet)
 router.register(r"office-infrastructures", OfficeInfrastructureViewSet)
 router.register(r"back-office-assets", BackOfficeAssetViewSet)
 urlpatterns = []

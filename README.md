@@ -92,6 +92,15 @@ The `sirius-custom` branch ships with a full dockerised stack that mirrors the s
      ```bash
      docker compose -f docker/docker-compose-local-dev.yml exec assets-web venv/bin/ralph createsuperuser
      ```
+   * Keycloak (SC3) integration: the stack now accepts Bearer JWTs from the `sc3` realm. Defaults are baked into compose; override as needed:
+     ```
+     KEYCLOAK_ISSUER=http://localhost:8180/realms/sc3
+     KEYCLOAK_JWKS_URL=http://localhost:8180/realms/sc3/protocol/openid-connect/certs
+     KEYCLOAK_AUDIENCE=sirius-asset-manager
+     KEYCLOAK_REQUIRED_ROLE=admin   # optional gate; remove for open access
+     KEYCLOAK_SYNC_GROUPS=True      # map realm_access.roles -> Django groups
+     ```
+     Send `Authorization: Bearer <JWT>` to the API; issuer/audience/role are enforced.
    * Stop the stack without dropping DB/media volumes with `make down` (runs `docker compose down --remove-orphans`).
    * Tear down with `make clean` (includes `docker compose down --volumes` and removes `tmp/logs/`).
 
@@ -282,6 +291,14 @@ Base URL examples (authenticated via DRF token or session):
   - `/api/projects/` — include `location` (FK) and `location_name` to align with SC3 projects/missions.
   - `/api/users/` and `/api/teams/` — superusers can create/update SC3 user/team records for assignments.
   - Assets now expose `color_hex` to carry SC3 dashboard color coding for telemetry/IoT devices.
+
+### SC3 registration responsibilities
+
+- SC3 stays the source of truth for principals (users/teams) and operational structure (locations, projects, missions). Create those records through the above endpoints before attempting to assign or deploy assets so Sirius inherits SC3 IDs and metadata unchanged.
+- Projects double as missions: SC3 may open a Project per mission or rely on the Location directly. Asset assignments accept either dimension, so downstream dashboards can treat “mission” as the project or location that SC3 registered.
+- Once a location or project exists, SC3 can call `POST /api/projects/<id>/assign_assets/` or the equivalent location-deployment helpers to attach assets for specific jobs or recurring tasks at that site; Sirius stores those assignments for scheduling and lifecycle automation.
+- Telemetry-enabled devices — drones, sensors, IoT cameras, and any asset that reports data over the network — are created directly from SC3 applications by POSTing to the matching family endpoints (`/api/drones/assets/`, `/api/sensors/assets/`, etc.). Include `project`, `location`, and optional mission fields so Sirius can immediately stage deployments and automation hooks.
+- Color-coding originates in SC3: set `color_hex` on each Location and on telemetry/IoT assets that need to surface that color on dashboards. Heavy equipment, trailers, generators, and classic fleet units generally lack telemetry/API access, so operations teams continue to add and maintain those assets manually inside Sirius via the admin or family-specific UIs.
 
 SC3 registration workflow:
 

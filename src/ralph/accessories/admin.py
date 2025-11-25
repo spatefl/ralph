@@ -40,7 +40,6 @@ class AccessoryAdmin(TransitionAdminMixin, RalphAdmin):
         "manufacturer",
         "accessory_name",
         "product_number",
-        "warehouse",
     ]
     change_views = [
         AccessoryUserView,
@@ -57,7 +56,6 @@ class AccessoryAdmin(TransitionAdminMixin, RalphAdmin):
                     "category",
                     "product_number",
                     "region",
-                    "warehouse",
                     "number_bought",
                     "used",
                     "free",

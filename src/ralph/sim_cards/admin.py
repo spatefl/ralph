@@ -27,15 +27,14 @@ class SIMCardAdmin(
         "puk1",
         "user",
         "owner",
-        "warehouse",
         "carrier",
         "quarantine_until",
         "property_of",
     ]
     multiadd_summary_fields = list_display
-    raw_id_fields = ["warehouse", "owner", "user", "carrier"]
+    raw_id_fields = ["owner", "user", "carrier"]
 
-    list_select_related = ["user", "warehouse", "owner", "carrier"]
+    list_select_related = ["user", "owner", "carrier"]
     search_fields = [
         "card_number",
         "phone_number",
@@ -44,14 +43,13 @@ class SIMCardAdmin(
         "user__username",
     ]
 
-    bulk_edit_list = ["status", "warehouse", "user", "owner", "features"]
+    bulk_edit_list = ["status", "user", "owner", "features"]
 
     list_filter = [
         "status",
         "features",
         "phone_number",
         "card_number",
-        "warehouse",
         "user",
         "owner",
         "user__segment",
@@ -84,7 +82,7 @@ class SIMCardAdmin(
         ),
         (
             _("User Info"),
-            {"fields": ("user", "owner", "warehouse", "quarantine_until")},
+            {"fields": ("user", "owner", "quarantine_until")},
         ),
     )
 

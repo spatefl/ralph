@@ -18,6 +18,11 @@ services:
         DATABASE_USER: ralph_ng
         DATABASE_PASSWORD: ralph_ng
         DATABASE_HOST: db
+        KEYCLOAK_ISSUER: http://localhost:8180/realms/sc3
+        KEYCLOAK_JWKS_URL: http://localhost:8180/realms/sc3/protocol/openid-connect/certs
+        KEYCLOAK_AUDIENCE: sirius-asset-manager
+        KEYCLOAK_REQUIRED_ROLE: admin
+        KEYCLOAK_SYNC_GROUPS: "True"
         REDIS_HOST: redis
         REDIS_PASSWORD: ""
         REDIS_PORT: 6379

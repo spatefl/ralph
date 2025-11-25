@@ -92,3 +92,12 @@ class BaseObject(
 
     def get_absolute_url(self):
         return reverse("admin:view_on_site", args=(self.content_type_id, self.pk))
+
+    org_location = models.ForeignKey(
+        "assets.Location",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="home_assets",
+        help_text=_("Permanent organizational location (SC3)."),
+    )

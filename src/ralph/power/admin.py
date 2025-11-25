@@ -140,6 +140,7 @@ class PowerAssetAdmin(HeavyEquipmentAssetAdmin):
             _("Location & Deployment"),
             {
                 "fields": (
+                    "org_location",
                     "assigned_location",
                     "deployment_site",
                     "deployed_on",

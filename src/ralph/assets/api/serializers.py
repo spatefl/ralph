@@ -862,6 +862,21 @@ class DeploymentAssignmentSerializer(RalphAPISerializer):
         )
 
 
+class DeploymentTransferSerializer(serializers.Serializer):
+    location_ref = serializers.PrimaryKeyRelatedField(queryset=Location.objects.all())
+    location = serializers.CharField(required=False, allow_blank=True)
+    assignee = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.all(), allow_null=True, required=False
+    )
+    status = serializers.ChoiceField(
+        choices=DeploymentStatus(), required=False, allow_null=True
+    )
+    shift_label = serializers.CharField(required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+    handover_notes = serializers.CharField(required=False, allow_blank=True)
+    started_at = serializers.DateTimeField(required=False)
+
+
 class DeploymentEntrySerializer(RalphAPISerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     assigned_to_user = SimpleRalphUserSerializer(read_only=True)

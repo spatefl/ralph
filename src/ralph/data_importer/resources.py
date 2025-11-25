@@ -127,11 +127,6 @@ class BackOfficeAssetResource(ResourceWithPrice, RalphModelResource):
         attribute="owner",
         widget=UserWidget(get_user_model()),
     )
-    warehouse = fields.Field(
-        column_name="warehouse",
-        attribute="warehouse",
-        widget=ImportedForeignKeyWidget(Warehouse),
-    )
     region = fields.Field(
         column_name="region",
         attribute="region",

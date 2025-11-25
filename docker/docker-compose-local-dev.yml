@@ -23,6 +23,11 @@ services:
         REDIS_PORT: 6379
         REDIS_DB: 0
         RALPH_PORT: 8005
+        KEYCLOAK_ISSUER: http://localhost:8180/realms/sc3
+        KEYCLOAK_JWKS_URL: http://localhost:8180/realms/sc3/protocol/openid-connect/certs
+        KEYCLOAK_AUDIENCE: sirius-asset-manager
+        KEYCLOAK_REQUIRED_ROLE: admin
+        KEYCLOAK_SYNC_GROUPS: "True"
 
   assets-db:
     platform: linux/amd64
@@ -60,6 +65,11 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: 0
       DISABLE_RQ_SCHEDULER: "1"
+      KEYCLOAK_ISSUER: http://localhost:8180/realms/sc3
+      KEYCLOAK_JWKS_URL: http://localhost:8180/realms/sc3/protocol/openid-connect/certs
+      KEYCLOAK_AUDIENCE: sirius-asset-manager
+      KEYCLOAK_REQUIRED_ROLE: admin
+      KEYCLOAK_SYNC_GROUPS: "True"
     command: ["/opt/sirius-ralph/venv/bin/ralph", "rqworker", "default"]
     restart: unless-stopped
 
@@ -82,6 +92,11 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: 0
       DISABLE_RQ_SCHEDULER: "1"
+      KEYCLOAK_ISSUER: http://localhost:8180/realms/sc3
+      KEYCLOAK_JWKS_URL: http://localhost:8180/realms/sc3/protocol/openid-connect/certs
+      KEYCLOAK_AUDIENCE: sirius-asset-manager
+      KEYCLOAK_REQUIRED_ROLE: admin
+      KEYCLOAK_SYNC_GROUPS: "True"
     command: ["/opt/sirius-ralph/venv/bin/ralph", "rqscheduler", "--queue", "default"]
     restart: unless-stopped
 

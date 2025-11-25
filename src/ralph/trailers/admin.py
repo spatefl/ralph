@@ -109,6 +109,7 @@ class TrailerAssetAdmin(HeavyEquipmentAssetAdmin):
             _("Location & Service"),
             {
                 "fields": (
+                    "org_location",
                     "assigned_location",
                     "deployment_site",
                     "deployed_on",

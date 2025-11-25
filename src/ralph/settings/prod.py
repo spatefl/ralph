@@ -14,6 +14,7 @@ from ralph.settings import (
 DEBUG = bool_from_env("RALPH_DEBUG", False)
 
 REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] = (
+    "ralph.lib.auth.keycloak.KeycloakJWTAuthentication",
     "rest_framework.authentication.TokenAuthentication",
     # session authentication enabled for API requests from UI (ex. in
     # visualisation)

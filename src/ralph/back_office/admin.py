@@ -14,10 +14,12 @@ from ralph.admin.views.multiadd import MulitiAddAdminMixin
 from ralph.admin.widgets import AutocompleteWidget
 from ralph.assets.filters import BuyoutDateFilter
 from ralph.assets.invoice_report import AssetInvoiceReportMixin
-from ralph.assets.models import ObjectModelType
+from ralph.assets.models import AssetModel, ObjectModelType
+from ralph.assets.models.assets import Location
 from ralph.attachments.admin import AttachmentsMixin
 from ralph.back_office.models import (
     BackOfficeAsset,
+    FieldGearAsset,
     DisasterReliefHeavyEquipment,
     DisasterReliefTrailer,
     DisasterReliefVehicle,
@@ -87,6 +89,41 @@ class BackOfficeAssetAdminForm(PriceFormMixin, AssetFormMixin, RalphAdmin.form):
         service_env_field = self.fields.get("service_env", None)
         if service_env_field:
             service_env_field.required = False
+        location_field = self.fields.get("location")
+        if location_field:
+            locations = Location.objects.all().order_by("name")
+            choices = [("", "---------")]
+            choices.extend(
+                (loc.code, f"{loc.name} ({loc.code})") if loc.code else (loc.name, loc.name)
+                for loc in locations
+            )
+            current = self.initial.get("location") or getattr(self.instance, "location", None)
+            if current and current not in {choice[0] for choice in choices}:
+                choices.append((current, f"{current} (existing)"))
+            self.fields["location"] = forms.ChoiceField(
+                choices=choices,
+                required=False,
+                label=location_field.label,
+                help_text=_("Select location from SC3 Locations."),
+            )
+
+
+class FieldGearAssetAdminForm(BackOfficeAssetAdminForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        model_field = self.fields.get("model")
+        if model_field:
+            model_field.queryset = AssetModel.objects.filter(category__is_field_gear=True)
+        # Strip phone/access-card specific fields for Field Gear simplicity.
+        for drop in [
+            "imei",
+            "imei2",
+            "office_infrastructure",
+            "loan_end_date",
+            "niw",
+            "task_url",
+        ]:
+            self.fields.pop(drop, None)
 
 
 @register(BackOfficeAsset)
@@ -120,7 +157,6 @@ class BackOfficeAssetAdmin(
         "purchase_order",
         "model",
         "get_user",
-        "warehouse",
         "service_env",
         "sn",
         "hostname",
@@ -154,14 +190,15 @@ class BackOfficeAssetAdmin(
         "hostname",
         "required_support",
         "region",
-        "warehouse",
         "task_url",
         "model__category",
+        "model__category__is_field_gear",
         "loan_end_date",
         "niw",
         "model__manufacturer",
         "model__manufacturer__manufacturer_kind",
         "location",
+        "org_location",
         "remarks",
         "user",
         "owner",
@@ -187,9 +224,9 @@ class BackOfficeAssetAdmin(
     list_select_related = [
         "model",
         "user",
-        "warehouse",
         "model__manufacturer",
         "region",
+        "org_location",
         "model__category",
         "property_of",
         "service_env",
@@ -200,8 +237,8 @@ class BackOfficeAssetAdmin(
         "model",
         "user",
         "owner",
+        "org_location",
         "region",
-        "warehouse",
         "property_of",
         "budget_info",
         "office_infrastructure",
@@ -219,9 +256,10 @@ class BackOfficeAssetAdmin(
         "purchase_order",
         "user",
         "owner",
-        "warehouse",
         "sn",
         "region",
+        "location",
+        "org_location",
         "property_of",
         "remarks",
         "invoice_date",
@@ -259,8 +297,8 @@ class BackOfficeAssetAdmin(
                     "niw",
                     "status",
                     "last_status_change",
-                    "warehouse",
                     "location",
+                    "org_location",
                     "region",
                     "loan_end_date",
                     "remarks",
@@ -399,6 +437,93 @@ class BackOfficeAssetAdmin(
 
     get_user.short_description = _("User")
     get_user.admin_order_field = "user"
+
+
+@register(FieldGearAsset)
+class FieldGearAssetAdmin(BackOfficeAssetAdmin):
+    form = FieldGearAssetAdminForm
+    # Simplified layout focused on tool tracking.
+    change_views = []
+    list_display = [
+        "status",
+        "barcode",
+        "sn",
+        "model",
+        "warehouse",
+        "location",
+        "org_location",
+        "region",
+        "owner",
+        "user",
+    ]
+    search_fields = ["barcode", "sn", "hostname", "model__name"]
+    list_filter = [
+        "status",
+        "warehouse",
+        "region",
+        "owner",
+        "user",
+        "model",
+        "model__category",
+    ]
+    raw_id_fields = [
+        "model",
+        "user",
+        "owner",
+        "org_location",
+        "region",
+        "warehouse",
+    ]
+    fieldsets = (
+        (
+            _("Basic info"),
+            {
+                "fields": (
+                    "hostname",
+                    "model",
+                    "barcode",
+                    "sn",
+                    "status",
+                    "last_status_change",
+                    "warehouse",
+                    "location",
+                    "org_location",
+                    "region",
+                    "remarks",
+                    "tags",
+                )
+            },
+        ),
+        (
+            _("Assignments"),
+            {
+                "fields": (
+                    "user",
+                    "owner",
+                )
+            },
+        ),
+        (
+            _("Financial"),
+            {
+                "fields": (
+                    "order_no",
+                    "purchase_order",
+                    "invoice_date",
+                    "invoice_no",
+                    "price",
+                    "provider",
+                )
+            },
+        ),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(model__category__is_field_gear=True)
+
+    def get_form(self, request, obj=None, **kwargs):
+        kwargs["form"] = self.form
+        return super().get_form(request, obj, **kwargs)
 
 
 class MaintenanceLogInline(RalphTabularInline):
